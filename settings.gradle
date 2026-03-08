@@ -1,1 +1,2 @@
-rootProject.name = 'Stepper'
+rootProject.name = 'stepper-ng'
+include ':BurpMontoyaUtilities'

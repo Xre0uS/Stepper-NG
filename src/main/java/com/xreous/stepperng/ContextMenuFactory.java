@@ -1,0 +1,273 @@
+package com.xreous.stepperng;
+
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
+import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
+import com.xreous.stepperng.sequence.StepSequence;
+import com.xreous.stepperng.sequencemanager.SequenceManager;
+import com.xreous.stepperng.step.Step;
+import com.xreous.stepperng.step.view.StepPanel;
+import com.xreous.stepperng.sequence.view.StepSequenceTab;
+import com.xreous.stepperng.variable.StepVariable;
+import com.xreous.stepperng.variable.DynamicGlobalVariable;
+import com.xreous.stepperng.variable.DynamicGlobalVariableManager;
+import com.xreous.stepperng.variable.StaticGlobalVariable;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.datatransfer.StringSelection;
+import java.util.*;
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class ContextMenuFactory implements ContextMenuItemsProvider {
+
+    private final SequenceManager sequenceManager;
+
+    public ContextMenuFactory(SequenceManager sequenceManager){
+        this.sequenceManager = sequenceManager;
+    }
+
+    @Override
+    public List<Component> provideMenuItems(ContextMenuEvent event) {
+        List<HttpRequestResponse> messages = new ArrayList<>();
+
+        if (event.selectedRequestResponses() != null) {
+            messages.addAll(event.selectedRequestResponses());
+        }
+
+        if (messages.isEmpty() && event.messageEditorRequestResponse().isPresent()) {
+            messages.add(event.messageEditorRequestResponse().get().requestResponse());
+        }
+
+        ArrayList<Component> menuItems = new ArrayList<>();
+
+        if (!messages.isEmpty()) {
+            final List<HttpRequestResponse> finalMessages = messages;
+            String addMenuTitle = String.format("Add %d %s to Stepper-NG", messages.size(), messages.size() == 1 ? "item" : "items");
+            JMenu addStepMenu = new JMenu(addMenuTitle);
+
+            for (StepSequence sequence : this.sequenceManager.getSequences()) {
+                JMenuItem item = new JMenuItem(sequence.getTitle());
+                item.addActionListener(actionEvent -> {
+                    for (HttpRequestResponse message : finalMessages) {
+                        sequence.addStep(message);
+                    }
+                });
+                addStepMenu.add(item);
+            }
+
+            JMenuItem newSequence = new JMenuItem("New Sequence");
+            newSequence.addActionListener(actionEvent -> {
+                String name = JOptionPane.showInputDialog(Stepper.getUI() != null ? Stepper.getUI().getUiComponent() : null,
+                        "Enter a name to identify the sequence: ", "", JOptionPane.PLAIN_MESSAGE);
+                if (name != null) {
+                    StepSequence stepSequence = new StepSequence(name);
+                    for (HttpRequestResponse message : finalMessages) {
+                        stepSequence.addStep(message);
+                    }
+                    this.sequenceManager.addStepSequence(stepSequence);
+                }
+            });
+
+            addStepMenu.add(new JPopupMenu.Separator());
+            addStepMenu.add(newSequence);
+            menuItems.add(addStepMenu);
+        }
+
+        List<Component> headerItems = buildCopyHeaderMenuItems();
+        if (!headerItems.isEmpty()) menuItems.addAll(headerItems);
+        List<Component> varItems = buildVariableMenuItems();
+        if (!varItems.isEmpty()) menuItems.addAll(varItems);
+        List<Component> dvarItems = buildDynamicVarMenuItems();
+        if (!dvarItems.isEmpty()) menuItems.addAll(dvarItems);
+        List<Component> gvarItems = buildStaticVarMenuItems();
+        if (!gvarItems.isEmpty()) menuItems.addAll(gvarItems);
+
+        return menuItems;
+    }
+
+    private List<Component> buildCopyHeaderMenuItems(){
+        List<Component> menuItems = new ArrayList<>();
+
+        JMenu addStepHeaderToClipboardMenu = new JMenu("Copy Header To Clipboard");
+
+        for (StepSequence stepSequence : sequenceManager.getSequences()) {
+            JMenu sequenceItem = new JMenu(stepSequence.getTitle());
+
+            JMenuItem execBeforeMenuItem = new JMenuItem("Execute-Before Header");
+            execBeforeMenuItem.addActionListener(actionEvent -> {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new StringSelection(MessageProcessor.EXECUTE_BEFORE_HEADER+": " + stepSequence.getTitle()), null);
+            });
+            sequenceItem.add(execBeforeMenuItem);
+
+            JMenuItem execAfterMenuItem = new JMenuItem("Execute-After Header");
+            execAfterMenuItem.addActionListener(actionEvent -> {
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new StringSelection(MessageProcessor.EXECUTE_AFTER_HEADER+": " + stepSequence.getTitle()), null);
+            });
+            sequenceItem.add(execAfterMenuItem);
+
+            addStepHeaderToClipboardMenu.add(sequenceItem);
+        }
+
+        menuItems.add(addStepHeaderToClipboardMenu);
+
+        return menuItems;
+    }
+
+    private List<Component> buildVariableMenuItems(){
+        List<Component> menuItems = new ArrayList<>();
+
+        HashMap<StepSequence, List<StepVariable>> sequenceVariableMap = new HashMap<>();
+
+        boolean isViewingSequenceStep = false;
+        StepSequence currentSequence = null;
+        Step currentStep = null;
+        if (Stepper.getUI() != null) {
+            StepSequenceTab selectedStepSet = Stepper.getUI().getSelectedStepSet();
+            if(selectedStepSet != null){
+                StepPanel selectedStepPanel = selectedStepSet.getSelectedStepPanel();
+                if(selectedStepPanel != null){
+                    isViewingSequenceStep = true;
+                    currentStep = selectedStepPanel.getStep();
+                    currentSequence = selectedStepSet.getStepSequence();
+                    List<StepVariable> stepVariables = currentSequence.getRollingVariablesUpToStep(currentStep);
+                    sequenceVariableMap.put(currentSequence, stepVariables);
+                }
+            }
+        }
+        if (!isViewingSequenceStep) {
+            sequenceVariableMap = sequenceManager.getRollingVariablesFromAllSequences();
+        }
+
+        long varCount = sequenceVariableMap.values().stream().mapToInt(List::size).sum();
+
+        if(varCount > 0) {
+            JMenu addStepVariableToClipboardMenu = new JMenu("Copy Variable To Clipboard");
+
+            if(isViewingSequenceStep){
+                Collection<StepVariable> variables = sequenceVariableMap.values().stream()
+                        .flatMap(Collection::stream).collect(Collectors.toList());
+
+                List<JMenuItem> variableToClipboardMenuItems = buildAddVariableToClipboardMenuItems(null, variables);
+
+                for (JMenuItem item : variableToClipboardMenuItems) {
+                    addStepVariableToClipboardMenu.add(item);
+                }
+            }else{
+                for (Map.Entry<StepSequence, List<StepVariable>> entry : sequenceVariableMap.entrySet()) {
+                    StepSequence stepSequence = entry.getKey();
+                    List<StepVariable> vars = entry.getValue();
+                    if (!vars.isEmpty()) {
+                        JMenu sequenceItem = new JMenu(stepSequence.getTitle());
+                        List<JMenuItem> sequenceVariableToClipboardItems =
+                                buildAddVariableToClipboardMenuItems(stepSequence, vars);
+                        for (JMenuItem item : sequenceVariableToClipboardItems) {
+                            sequenceItem.add(item);
+                        }
+                        addStepVariableToClipboardMenu.add(sequenceItem);
+                    }
+                }
+            }
+
+            menuItems.add(addStepVariableToClipboardMenu);
+        }
+
+        // When viewing a sequence step, also offer published variables from later steps
+        // using the cross-sequence $VAR:seq:name$ format
+        if (isViewingSequenceStep && currentSequence != null && currentStep != null) {
+            Set<String> rollingIds = sequenceVariableMap.values().stream()
+                    .flatMap(Collection::stream)
+                    .map(StepVariable::getIdentifier)
+                    .collect(Collectors.toSet());
+
+            List<StepVariable> allVars = currentSequence.getRollingVariablesForWholeSequence();
+            List<StepVariable> publishedLater = allVars.stream()
+                    .filter(v -> v.isPublished() && !rollingIds.contains(v.getIdentifier()))
+                    .collect(Collectors.toList());
+
+            if (!publishedLater.isEmpty()) {
+                JMenu publishedMenu = new JMenu("Copy Published Variable (Cross-Sequence)");
+                for (StepVariable var : publishedLater) {
+                    String usage = StepVariable.createVariableString(currentSequence.getTitle(), var.getIdentifier());
+                    JMenuItem item = new JMenuItem(var.getIdentifier() + "  →  " + usage);
+                    item.addActionListener(a -> Toolkit.getDefaultToolkit().getSystemClipboard()
+                            .setContents(new StringSelection(usage), null));
+                    publishedMenu.add(item);
+                }
+                menuItems.add(publishedMenu);
+            }
+        }
+
+        return menuItems;
+    }
+
+    private List<JMenuItem> buildAddVariableToClipboardMenuItems(StepSequence sequence, Collection<StepVariable> variables){
+        List<JMenuItem> menuItems = new ArrayList<>();
+        for (StepVariable variable : variables) {
+            JMenuItem item = new JMenuItem(variable.getIdentifier());
+            item.addActionListener(actionEvent -> {
+                String variableString;
+                if(sequence == null){
+                    variableString = StepVariable.createVariableString(variable.getIdentifier());
+                }else{
+                    variableString = StepVariable.createVariableString(sequence.getTitle(), variable.getIdentifier());
+                }
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new StringSelection(variableString), null);
+            });
+            menuItems.add(item);
+        }
+        return menuItems;
+    }
+
+    private List<Component> buildDynamicVarMenuItems(){
+        List<Component> menuItems = new ArrayList<>();
+        DynamicGlobalVariableManager dvarManager = Stepper.getDynamicGlobalVariableManager();
+        if (dvarManager == null || dvarManager.getVariables().isEmpty()) return menuItems;
+
+        JMenu dvarMenu = new JMenu("Copy Dynamic Variable To Clipboard");
+        for (DynamicGlobalVariable dvar : dvarManager.getVariables()) {
+            String label = dvar.getIdentifier();
+            if (dvar.getValue() != null && !dvar.getValue().isEmpty()) {
+                String preview = dvar.getValue().length() > 30 ? dvar.getValue().substring(0, 30) + "..." : dvar.getValue();
+                label += " = " + preview;
+            }
+            JMenuItem item = new JMenuItem(label);
+            item.addActionListener(actionEvent -> {
+                String dvarString = DynamicGlobalVariable.createDvarString(dvar.getIdentifier());
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new StringSelection(dvarString), null);
+            });
+            dvarMenu.add(item);
+        }
+        menuItems.add(dvarMenu);
+        return menuItems;
+    }
+
+    private List<Component> buildStaticVarMenuItems(){
+        List<Component> menuItems = new ArrayList<>();
+        DynamicGlobalVariableManager manager = Stepper.getDynamicGlobalVariableManager();
+        if (manager == null || manager.getStaticVariables().isEmpty()) return menuItems;
+
+        JMenu gvarMenu = new JMenu("Copy Global Variable To Clipboard");
+        for (StaticGlobalVariable svar : manager.getStaticVariables()) {
+            String label = svar.getIdentifier();
+            if (svar.getValue() != null && !svar.getValue().isEmpty()) {
+                String preview = svar.getValue().length() > 30 ? svar.getValue().substring(0, 30) + "..." : svar.getValue();
+                label += " = " + preview;
+            }
+            JMenuItem item = new JMenuItem(label);
+            item.addActionListener(actionEvent -> {
+                String gvarString = StaticGlobalVariable.createGvarString(svar.getIdentifier());
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new StringSelection(gvarString), null);
+            });
+            gvarMenu.add(item);
+        }
+        menuItems.add(gvarMenu);
+        return menuItems;
+    }
+}

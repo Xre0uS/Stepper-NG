@@ -1,0 +1,3 @@
+[submodule "BurpMontoyaUtilities"]
+	path = BurpMontoyaUtilities
+	url = https://github.com/Xre0uS/Burp-Montoya-Utilities.git

@@ -1,70 +1,164 @@
-<p align="center">
-  <h1 align="center">Stepper</h1>
-  <h5 align="center">A Multi-Stage Repeater Replacement For Burp Suite</h5>
-</p>
+# Stepper-NG
 
-<p align="center">
-  <img src="https://img.shields.io/github/workflow/status/CoreyD97/Stepper/Java%20CI%20with%20Gradle?style=for-the-badge" alt="GitHub Workflow Status">
-  <img src="https://img.shields.io/github/watchers/CoreyD97/Stepper?label=Watchers&style=for-the-badge" alt="GitHub Watchers">
-  <img src="https://img.shields.io/github/stars/CoreyD97/Stepper?style=for-the-badge" alt="GitHub Stars">
-  <img src="https://img.shields.io/github/downloads/CoreyD97/Stepper/total?style=for-the-badge" alt="GitHub All Releases">
-  <img src="https://img.shields.io/github/license/CoreyD97/Stepper?style=for-the-badge" alt="GitHub License">
-</p>
+A multi-stage repeater extension for Burp Suite with dynamic variable extraction and automated session handling.
 
-**Created By: CoreyD97 [![@CoreyD97](https://img.shields.io/twitter/follow/CoreyD97?style=social)](https://twitter.com/coreyd97/)**
+Examples: https://xreous.io/posts/stepper-ng/
 
-*Stepper is designed to be a natural evolution of Burp Suite's Repeater tool, providing the ability to create sequences of steps and define regular expressions to extract values from responses which can then be used in subsequent steps.*
-  
-![Example Step](images/step1.png)  
-*A step utilising a variable and defining a new variable for use in later steps.*
-  
-![Combining with Hackvertor](images/step2.png)
-*Using Hackvertor tags with stepper for additional functionality.*
-  
-![Replacement Preview Tab](images/with-replacements.png)
-*Previewing message with replacements to be utilised*
+> Based on [Stepper](https://github.com/CoreyD97/Stepper) by CoreyD97 which stopped working in Burp Suite 2026 versions. Migrated to the Burp Montoya API and extended with new features.
 
-**Building:**
-1. Clone the repo
-2. Use gradle to build the jar: `gradlew jar`
-3. Add the built jar (`./releases/Stepper.jar`) to Burp Suite 
+## Features
 
-**Usage:**
-1. Create a new sequence. Double-click the title to set a suitable name.
-2. Optional: Configure the global variables to use for the sequence.
-3. Add your steps to the sequence manually, or using the context menu entry.
-4. Optional: Define variables for steps, providing a regular expression which will be used to extract the values from the response.
-   Tip: You can execute a single step to test your regular expressions using the button in the top right.
-5. Execute the entire sequence using the button at the bottom of the panel.
-6. If you like the project, please give the repo a star! <3
-![Stargazers](https://starchart.cc/coreyd97/Stepper.svg)
+### Auto Session Handler
+Published variables drive session management automatically. When an outgoing request contains `$VAR:SequenceName:varName$` referencing a published variable, Stepper-NG auto-executes the owning sequence. If the sequence has a Validation Step configured, it runs first - if the session is valid, the rest of the sequence is skipped; if invalid, the full refresh sequence runs.
 
+Use Burp's session handling rules to inject `$VAR:SequenceName:varName$` into headers/cookies/parameters. This replaces the need for manual `X-Stepper-Execute-Before` headers and the old "Check session is valid" + macro approach.
 
-**Variables:**  
-Variables can be defined for use within a sequence. Variables consist of an identifier and a regular expression, or in the case of initial variables defined in the Globals tab, an identifier and value.
-Step variables, defined with a regular expression, have their values set from the response of the step in which they are defined. The variable is then available for use within the request of subsequent steps after their definition.
-However, Global variables, defined with a literal initial value, can be used throughout the sequence.
+Configure "Validate every N requests" in Preferences to throttle how often published variable sequences fire (e.g., every 5 requests for intruder/scanner). Set to 1 for every request.
 
-Both step and global variables may be updated in later steps after their definition.
+### Published Variables
 
+Mark any post-execution variable as Published using the checkbox in the variable table or via the Variables panel in the Overview tab.
 
-**Regular Expression Variables:**  
-Variables which are defined with a regular expression are updated each time the step in which they are defined is executed.
-The regular expression is executed on the response received, with the first match being used as the new value.
-If the defined regular expression has no groups defined, the whole match will be used.
-If the regular expression defines capture groups, the first group will be used.
-If groups are required but should not be used as the value, a non-capturing group may be used. e.g. (?:REGEX)
+How it works:
 
+1. Auto-trigger: When an outgoing request contains `$VAR:SequenceName:varName$` referencing a published variable, the sequence automatically executes before the request - no `X-Stepper-Execute-Before` header needed.
 
-**Example:**   
-Response: "Hello People, Hello World!"  
-Expression: World|Earth, Result: World  
-Expression: Hello (World|Earth)!, Result: World  
-Expression: (?:Goodbye|Hello) (World)!, Result: World
+2. Passthrough sync: Published regex variables automatically update when their pattern matches in any HTTP response flowing through Burp (proxy, repeater, scanner, etc.). If a user logs in through the browser and the response contains a token that matches a published variable's regex, the variable silently captures it. This means Stepper stays in sync with tokens refreshed through normal browsing without re-running the sequence.
 
-**Variable Usage:**  
-To use a variable in a request after it has been defined, either use the option in the context menu to copy the parameter to the clipboard, or manually insert it by including it as below:
+3. Sequence execution: When a published variable's value is empty or stale (combined with a validation step), referencing it in a request triggers the full sequence to run and capture fresh values.
 
-<b>$VAR:</b>VARIABLE_IDENTIFIER<b>$</b>
+### Conditional Steps & Session Validation
+Each step can have a condition evaluated after execution.
 
-Read more about Stepper and its usage in this blog: [Stepper (Burp Extender): Burp’s best extender for automating sequence of requests so far!](https://iamyuthan.medium.com/stepper-burps-best-sequence-automation-extender-so-far-complete-tutorial-review-aa30e023e5f6)
+The condition is configured as a single line: If [response body / status line] [matches / does not match] [pattern], optional retry N× with delay, then [continue / skip remaining / go to step].
+
+Session Validation Mode: Set a "Validation Step" on a sequence. Configure its condition to describe what a valid session looks like, e.g. `If status line matches 200`:
+- If the condition triggers (e.g., got 200) → session is valid → rest of the sequence is skipped
+- If the condition does not trigger (e.g., got 401) → session is invalid → full sequence runs
+
+This mirrors Burp's built-in session handling rules and solves the JWT refresh problem where the first step needs dynamic values from a prior session.
+
+### Shared Variable Names Across Steps
+
+When multiple steps in a sequence extract the same logical value (e.g., a JWT) but from different endpoints with different response formats, give them the same variable identifier. Stepper-NG automatically syncs values across same-named variables:
+
+- Step 1 (login): variable `jwt` with regex `"token":"(.*?)"` → captures from `{"token":"abc"}`
+- Step 2 (refresh): variable `jwt` with regex `"jwtToken":"(.*?)"` → captures from `{"jwtToken":"xyz"}`
+
+After either step executes, the captured value propagates to the same-named variable in the other step. `$VAR:seq:jwt$` always resolves to the latest value. Only one of the two `jwt` variables needs to be published.
+
+This also works with passthrough sync - if a login response flows through the proxy and matches Step 1's pattern, the value is synced to Step 2's `jwt` variable automatically.
+
+### Step Sequences
+- Define multi-step HTTP request sequences
+- Extract variables from responses using regex
+- Use variables in subsequent requests with `$VAR:name$` syntax
+- Execute sequences manually or triggered via headers (`X-Stepper-Execute-Before`, `X-Stepper-Execute-After`)
+- Import and export sequences as JSON files or strings
+
+### Global Variables
+A unified Global Variables tab manages two kinds of variables available across all tools:
+
+Static Global Variables
+- Simple key-value pairs set manually
+- Use in any request with `$GVAR:name$` syntax
+
+Dynamic Global Variables
+Inspired by [burp_variables](https://github.com/0xceba/burp_variables), Stepper-NG can automatically extract values from all HTTP responses flowing through Burp Suite.
+- Define regex patterns that run against every response
+- Optionally filter by host regex
+- Use extracted values in any request with `$DVAR:name$` syntax
+- Variables update automatically as new matching responses arrive
+
+### Auto-Generate Regex from Selection
+When creating post-execution variables, highlight text in a response and Stepper-NG will automatically generate a regex pattern using surrounding context as anchors.
+
+### Sequence Overview Tab
+Each sequence has an Overview tab with two panels:
+- Steps table: Summary of all steps showing status, target, condition, variables (✦ marks published), actions, and last execution result.
+- Variables panel: Lists all post-execution variables across all steps with a checkbox to publish/unpublish. Shows the variable's regex, current value, and last updated timestamp. Right-click to copy the `$VAR:` reference.
+
+### Stepper Replacements Tab
+A custom request editor tab shows a preview of the request with all `$VAR:`, `$GVAR:`, and `$DVAR:` variables replaced and highlighted. Respects the current Burp theme (dark/light).
+
+### Sequence Arguments
+Pass arguments to sequences when executing them from other tools. Arguments override global variable values for the duration of that execution.
+
+Inline syntax:
+```
+X-Stepper-Execute-Before: MySequence: token=abc123; user=admin
+```
+
+Dedicated argument header (one per header, supports any character in the value):
+```
+X-Stepper-Argument: token=abc123
+```
+
+Arguments from both methods are merged. Inline arguments take priority over `X-Stepper-Argument` headers.
+
+### Disable/Enable Steps & Sequences
+Right-click any step or sequence tab to toggle it between enabled and disabled. Disabled steps are skipped during execution. Disabled sequences have their variables left as literal text, will not auto-execute, and ignore execution headers. Both show a ⊘ prefix in the tab title and the state is persisted across project saves.
+
+## Variable Syntax
+
+| Type | Syntax | Scope |
+|------|--------|-------|
+| Step Variable | `$VAR:name$` | Within a sequence |
+| Cross-Sequence Variable | `$VAR:SequenceName:name$` | Across sequences (in other tools) |
+| Static Global Variable | `$GVAR:name$` | All tools, set manually |
+| Dynamic Global Variable | `$DVAR:name$` | All tools, auto-extracted from responses |
+
+Published variables should typically live in one sequence only. If multiple sequences have published variables, a request containing `$VAR:` references could trigger multiple sequences. The Overview tab shows a warning when conflicts exist.
+
+The `X-Stepper-Execute-Before` header still works for backward compatibility and for cases where you want to trigger a sequence without referencing specific variables.
+
+## Changes from Original Stepper
+
+- Migrated from legacy Burp Extender API to Montoya API
+- Auto session handler via published variables with validation step and validate-every-N throttling
+- Published variables: auto-trigger sequences when referenced, passthrough sync from proxy/tool responses
+- Conditional steps with regex/status conditions, match/not-match mode, retry, goto, and skip actions
+- Session validation mode: run a validation step first, skip sequence if session is alive
+- Shared variable names: same-named variables across steps sync values automatically
+- Unified Global Variables tab (static `$GVAR:` + dynamic `$DVAR:`) replaces per-sequence globals
+- Auto-regex generation from highlighted response text
+- Stepper Replacements tab with theme-aware variable highlighting
+- Sequence arguments via inline syntax and `X-Stepper-Argument` headers ([PR #79](https://github.com/C0DEbrained/Stepper/pull/79))
+- Disable/enable individual steps and entire sequences
+- Option to disable non-UTF-8 character warning dialog ([PR #78](https://github.com/C0DEbrained/Stepper/pull/78))
+- Tab indicators when sequences fire in the background
+- Infinite loop prevention with max depth limit
+- Duplicate sequence support (right-click tab)
+- Sequence Overview tab showing step conditions, variables, and flow at a glance
+- Fixed Content-Length update for Montoya API compatibility
+- Performance optimizations and bug
+
+## Building
+
+```bash
+./gradlew clean jar
+```
+
+The built jar will be at `releases/stepper-ng.jar`.
+
+Requirements:
+- Java 25 LTS
+- Gradle 9.4.0 (included via wrapper)
+
+## Installation
+
+1. Build the jar or download from releases
+2. In Burp Suite, go to Extensions → Add
+3. Select the `stepper-ng.jar` file
+4. The Stepper-NG tab will appear
+
+## Credits
+
+- CoreyD97 - Original [Stepper](https://github.com/CoreyD97/Stepper) extension
+- Ratsch0k - Sequence arguments ([PR #79](https://github.com/C0DEbrained/Stepper/pull/79)) and disable unprocessable warning ([PR #78](https://github.com/C0DEbrained/Stepper/pull/78))
+- Inspired by [burp_variables](https://github.com/0xceba/burp_variables) by 0xceba
+
+## License
+
+See [LICENCE](LICENCE) file.
+
