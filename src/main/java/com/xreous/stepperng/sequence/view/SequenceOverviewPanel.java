@@ -460,7 +460,7 @@ public class SequenceOverviewPanel extends JPanel {
                     && cond.getGotoTarget() != null && !cond.getGotoTarget().isEmpty()) {
                 sb.append(" → ").append(cond.getGotoTarget());
             }
-            if (cond.getRetryCount() > 0) {
+            if (cond.getRetryCount() > 0 && cond.getType() != StepCondition.ConditionType.ALWAYS) {
                 sb.append(", retry ").append(cond.getRetryCount()).append("x");
                 if (cond.getRetryDelayMs() > 0) sb.append(" (").append(cond.getRetryDelayMs()).append("ms)");
             }

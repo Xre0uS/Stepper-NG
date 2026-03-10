@@ -170,7 +170,9 @@ public class StepSequence
                             List<StepVariable> rollingReplacements = this.getRollingVariablesUpToStep(step);
 
                             StepCondition cond = step.getCondition();
-                            int maxRetries = (cond != null) ? cond.getRetryCount() : 0;
+                            // "Always" conditions trigger on the first attempt — retries are meaningless
+                            boolean isAlways = cond != null && cond.getType() == StepCondition.ConditionType.ALWAYS;
+                            int maxRetries = (cond != null && !isAlways) ? cond.getRetryCount() : 0;
                             StepExecutionInfo stepResult = null;
                             boolean conditionTriggered = false;
 

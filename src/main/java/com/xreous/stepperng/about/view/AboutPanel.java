@@ -104,7 +104,19 @@ public class AboutPanel extends JPanel {
                     "and extended with global variables, auto-regex generation, published variables " +
                     "for automatic session management, conditional step execution, and more.\n\n";
 
-            String instructionsHeader = "Instructions:\n";
+            String quickStartHeader = "Quick Start:\n";
+            String quickStart = "1. Create a sequence with +, double-click the tab to rename it (e.g. login-seq).\n" +
+                    "2. Add steps manually or via right-click \u2192 Add to Stepper sequence from any Burp tool.\n" +
+                    "3. Define post-execution variables with regex to capture response values (or highlight text and click Auto Regex).\n" +
+                    "4. Use $VAR:name$ in later steps to insert captured values.\n" +
+                    "5. Click Execute to run all steps in order.\n\n" +
+                    "For automatic session handling:\n" +
+                    "1. Publish a variable (check the Published checkbox on a post-execution variable).\n" +
+                    "2. Use $VAR:login-seq:jwt$ in Repeater/Intruder/Scanner \u2014 the sequence auto-executes when referenced.\n" +
+                    "3. Set a Validation Step to skip the sequence when the session is still valid.\n" +
+                    "4. Set Validate every N requests in Preferences to throttle during scans.\n\n";
+
+            String instructionsHeader = "Detailed Instructions:\n";
             String instructions = "1. Create a new sequence. Double-click the title to set a suitable name.\n" +
                     "2. Add your steps to the sequence manually, or using the context menu entry.\n" +
                     "3. Optional: Define variables for steps.\n" +
@@ -188,9 +200,12 @@ public class AboutPanel extends JPanel {
 
             String conditionsHeader = "Conditional Steps:\n";
             String conditionsText = "Each step can have a condition evaluated after execution. " +
-                    "Conditions read as: \"If [response/status] [matches/does not match] [pattern], then [action]\". " +
+                    "Condition types: Response body or Status line (with matches/does not match), or Always (fires unconditionally). " +
                     "Actions: Continue to next step, Skip remaining steps, or Go to step. " +
-                    "Steps can be retried a configurable number of times with a delay between attempts.\n\n";
+                    "For pattern-based conditions, configure retry N\u00d7 with a delay between attempts. " +
+                    "An else action fires when the condition does not trigger (after all retries are exhausted), " +
+                    "enabling if/else branching — e.g., retry refresh 2\u00d7, skip if 200, else continue to full login. " +
+                    "When set to Always, retry and else are ignored since the action always fires.\n\n";
 
             String sessionHeader = "Session Validation:\n";
             String sessionText = "Set a Validation Step on a sequence to enable session validation mode. " +
@@ -229,7 +244,8 @@ public class AboutPanel extends JPanel {
                     "A maximum nesting depth of " + com.xreous.stepperng.Globals.MAX_SEQUENCE_DEPTH + " prevents runaway execution.\n";
 
             String[] sections = new String[]{
-                    intro, instructionsHeader, instructions,
+                    intro, quickStartHeader, quickStart,
+                    instructionsHeader, instructions,
                     globalVarsHeader, globalVars,
                     variableHelpHeader, variableHelp,
                     regularExpressionHeader, regularExpressionHelp,
@@ -255,6 +271,7 @@ public class AboutPanel extends JPanel {
                     overviewHeader, overviewText};
             Style[] styles = new Style[]{
                     italics, bold, null,
+                    bold, null,
                     bold, null,
                     bold, null,
                     bold, null,

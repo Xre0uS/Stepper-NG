@@ -310,6 +310,17 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
             crossSequenceVars = this.sequenceManager.getRollingVariablesFromAllSequences();
         }
 
+        try {
+            Stepper.montoya.logging().logToOutput("Stepper-NG [ReplacementsTab] step=" + (this.step != null ? this.step.getTitle() : "null")
+                + ", inSeqEntries=" + inSequenceVars.size() + ", crossSeqEntries=" + crossSequenceVars.size());
+            for (Map.Entry<StepSequence, List<StepVariable>> e : crossSequenceVars.entrySet()) {
+                for (StepVariable v : e.getValue()) {
+                    Stepper.montoya.logging().logToOutput("  cross-seq: " + e.getKey().getTitle() + ":" + v.getIdentifier()
+                        + " published=" + v.isPublished() + " value=" + (v.getValuePreview() != null ? v.getValuePreview().substring(0, Math.min(30, v.getValuePreview().length())) : "null"));
+                }
+            }
+        } catch (Exception ignored) {}
+
         String contentString = new String(content);
         try {
             replaceAndHighlight(contentString, inSequenceVars, crossSequenceVars);
@@ -364,6 +375,10 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
                 output = new StringBuffer();
                 Pattern pattern = StepVariable.createIdentifierPatternWithSequence(sequence, stepVariable);
 
+                try {
+                    Stepper.montoya.logging().logToOutput("  Trying cross-seq pattern: " + pattern.pattern()
+                        + " against content contains=" + contentToSearch.contains("$VAR:" + sequence.getTitle() + ":" + stepVariable.getIdentifier() + "$"));
+                } catch (Exception ignored) {}
 
                 String replacement = stepVariable.getValuePreview() != null ? stepVariable.getValuePreview() : "";
                 Matcher m = pattern.matcher(contentToSearch);

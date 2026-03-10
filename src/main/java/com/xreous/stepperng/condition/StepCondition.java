@@ -143,7 +143,8 @@ public class StepCondition {
         if (action == ConditionFailAction.GOTO_STEP && gotoTarget != null && !gotoTarget.isEmpty()) {
             sb.append(" (").append(gotoTarget).append(")");
         }
-        if (retryCount > 0) sb.append(", retry ").append(retryCount).append("x");
+        // Retry is meaningless for "Always" — condition always triggers on the first attempt
+        if (type != ConditionType.ALWAYS && retryCount > 0) sb.append(", retry ").append(retryCount).append("x");
         if (type != ConditionType.ALWAYS && elseAction != null && elseAction != ConditionFailAction.CONTINUE) {
             sb.append(", else ").append(elseAction);
             if (elseAction == ConditionFailAction.GOTO_STEP && elseGotoTarget != null && !elseGotoTarget.isEmpty()) {

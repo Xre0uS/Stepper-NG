@@ -5,7 +5,6 @@ import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.sequencemanager.SequenceManager;
-import com.xreous.stepperng.step.Step;
 import com.xreous.stepperng.step.view.StepPanel;
 import com.xreous.stepperng.sequence.view.StepSequenceTab;
 import com.xreous.stepperng.variable.StepVariable;
@@ -123,18 +122,15 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
         HashMap<StepSequence, List<StepVariable>> sequenceVariableMap = new HashMap<>();
 
         boolean isViewingSequenceStep = false;
-        StepSequence currentSequence = null;
-        Step currentStep = null;
         if (Stepper.getUI() != null) {
             StepSequenceTab selectedStepSet = Stepper.getUI().getSelectedStepSet();
             if(selectedStepSet != null){
                 StepPanel selectedStepPanel = selectedStepSet.getSelectedStepPanel();
                 if(selectedStepPanel != null){
                     isViewingSequenceStep = true;
-                    currentStep = selectedStepPanel.getStep();
-                    currentSequence = selectedStepSet.getStepSequence();
-                    List<StepVariable> stepVariables = currentSequence.getRollingVariablesUpToStep(currentStep);
-                    sequenceVariableMap.put(currentSequence, stepVariables);
+                    StepSequence seq = selectedStepSet.getStepSequence();
+                    List<StepVariable> allSeqVariables = seq.getRollingVariablesForWholeSequence();
+                    sequenceVariableMap.put(seq, allSeqVariables);
                 }
             }
         }
@@ -159,11 +155,11 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
             }else{
                 for (Map.Entry<StepSequence, List<StepVariable>> entry : sequenceVariableMap.entrySet()) {
                     StepSequence stepSequence = entry.getKey();
-                    List<StepVariable> vars = entry.getValue();
-                    if (!vars.isEmpty()) {
+                    List<StepVariable> stringStepVariableHashMap = entry.getValue();
+                    if (stringStepVariableHashMap.size() > 0) {
                         JMenu sequenceItem = new JMenu(stepSequence.getTitle());
                         List<JMenuItem> sequenceVariableToClipboardItems =
-                                buildAddVariableToClipboardMenuItems(stepSequence, vars);
+                                ContextMenuFactory.this.buildAddVariableToClipboardMenuItems(stepSequence, stringStepVariableHashMap);
                         for (JMenuItem item : sequenceVariableToClipboardItems) {
                             sequenceItem.add(item);
                         }
@@ -173,32 +169,6 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
             }
 
             menuItems.add(addStepVariableToClipboardMenu);
-        }
-
-        // When viewing a sequence step, also offer published variables from later steps
-        // using the cross-sequence $VAR:seq:name$ format
-        if (isViewingSequenceStep && currentSequence != null && currentStep != null) {
-            Set<String> rollingIds = sequenceVariableMap.values().stream()
-                    .flatMap(Collection::stream)
-                    .map(StepVariable::getIdentifier)
-                    .collect(Collectors.toSet());
-
-            List<StepVariable> allVars = currentSequence.getRollingVariablesForWholeSequence();
-            List<StepVariable> publishedLater = allVars.stream()
-                    .filter(v -> v.isPublished() && !rollingIds.contains(v.getIdentifier()))
-                    .collect(Collectors.toList());
-
-            if (!publishedLater.isEmpty()) {
-                JMenu publishedMenu = new JMenu("Copy Published Variable (Cross-Sequence)");
-                for (StepVariable var : publishedLater) {
-                    String usage = StepVariable.createVariableString(currentSequence.getTitle(), var.getIdentifier());
-                    JMenuItem item = new JMenuItem(var.getIdentifier() + "  →  " + usage);
-                    item.addActionListener(a -> Toolkit.getDefaultToolkit().getSystemClipboard()
-                            .setContents(new StringSelection(usage), null));
-                    publishedMenu.add(item);
-                }
-                menuItems.add(publishedMenu);
-            }
         }
 
         return menuItems;

@@ -170,24 +170,11 @@ public class MessageProcessor implements HttpHandler {
                 requestBytes = request.toByteArray().getBytes();
             }
 
-            // Fast path: skip all variable logic unless the request contains a plausible
-            // variable prefix. All Stepper tokens start with "$VAR:", "$DVAR:", or "$GVAR:",
-            // so we look for '$' followed by 'V', 'D', or 'G'. This is far more selective
-            // than checking for '$' alone (which appears in JS, cookies, etc.).
-            boolean mayHaveVariables = false;
-            for (int i = 0; i < requestBytes.length - 1; i++) {
-                if (requestBytes[i] == '$') {
-                    byte next = requestBytes[i + 1];
-                    if (next == 'V' || next == 'D' || next == 'G') {
-                        mayHaveVariables = true;
-                        break;
-                    }
-                }
-            }
+            // Fast path: if there's no '$' in the request, skip all variable checks
+            String requestString = new String(requestBytes);
+            boolean hasDollar = requestString.indexOf('$') >= 0;
 
-            if (mayHaveVariables) {
-                // Convert to String only when we know there are potential variables
-                String requestString = new String(requestBytes);
+            if (hasDollar) {
                 Set<StepSequence> autoExecSequences = sequenceManager.getSequencesToAutoExecute(requestString);
                 if (!autoExecSequences.isEmpty()) {
                     int validateEveryN = 1;
@@ -344,18 +331,34 @@ public class MessageProcessor implements HttpHandler {
 
 
     public static byte[] makeReplacementsForSingleSequence(byte[] originalContent, List<StepVariable> variables) {
+        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
+
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (StepVariable variable : variables) {
             String match = StepVariable.createVariableString(variable.getIdentifier());
             String replace = variable.getValue() != null ? variable.getValue() : "";
-            replacements.add(new ReplacingInputStream.Replacement(match.getBytes(StandardCharsets.UTF_8), replace.getBytes(StandardCharsets.UTF_8)));
+            ReplacingInputStream.Replacement replacement = new ReplacingInputStream.Replacement(match.getBytes(StandardCharsets.UTF_8), replace.getBytes(StandardCharsets.UTF_8));
+            replacements.add(replacement);
         }
-        if (replacements.isEmpty()) return originalContent;
-        return applyReplacements(originalContent, replacements);
+        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        int b;
+        try {
+            while (-1 != (b = inputStream.read())) {
+                bos.write(b);
+            }
+        }catch (IOException e){
+            Stepper.montoya.logging().logToError("Stepper-NG: Stream replacement error: " + e.getMessage());
+        }
+
+        return bos.toByteArray();
     }
 
     public static byte[] makeReplacementsForAllSequences(byte[] originalContent,
                                                          HashMap<StepSequence, List<StepVariable>> sequenceVariableMap) {
+        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
+
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (Map.Entry<StepSequence, List<StepVariable>> sequenceEntry : sequenceVariableMap.entrySet()) {
             StepSequence sequence = sequenceEntry.getKey();
@@ -363,23 +366,19 @@ public class MessageProcessor implements HttpHandler {
             for (StepVariable variable : variables) {
                 String match = StepVariable.createVariableString(sequence.getTitle(), variable.getIdentifier());
                 String replace = variable.getValue() != null ? variable.getValue() : "";
-                replacements.add(new ReplacingInputStream.Replacement(match.getBytes(StandardCharsets.UTF_8), replace.getBytes(StandardCharsets.UTF_8)));
+                ReplacingInputStream.Replacement replacement = new ReplacingInputStream.Replacement(match.getBytes(StandardCharsets.UTF_8), replace.getBytes(StandardCharsets.UTF_8));
+                replacements.add(replacement);
             }
         }
-        if (replacements.isEmpty()) return originalContent;
-        return applyReplacements(originalContent, replacements);
-    }
+        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
 
-    private static byte[] applyReplacements(byte[] content, List<ReplacingInputStream.Replacement> replacements) {
-        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(content), replacements);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(content.length);
-        byte[] buf = new byte[4096];
-        int n;
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        int b;
         try {
-            while ((n = inputStream.read(buf)) != -1) {
-                bos.write(buf, 0, n);
+            while (-1 != (b = inputStream.read())) {
+                bos.write(b);
             }
-        } catch (IOException e) {
+        }catch (IOException e){
             Stepper.montoya.logging().logToError("Stepper-NG: Stream replacement error: " + e.getMessage());
         }
 
@@ -529,30 +528,54 @@ public class MessageProcessor implements HttpHandler {
     }
 
     public static byte[] makeDvarReplacements(byte[] originalContent, DynamicGlobalVariableManager manager) {
+        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (DynamicGlobalVariable dvar : manager.getVariables()) {
             if (dvar.getValue() != null) {
                 String match = DynamicGlobalVariable.createDvarString(dvar.getIdentifier());
+                String replace = dvar.getValue();
                 replacements.add(new ReplacingInputStream.Replacement(
                         match.getBytes(StandardCharsets.UTF_8),
-                        dvar.getValue().getBytes(StandardCharsets.UTF_8)));
+                        replace.getBytes(StandardCharsets.UTF_8)));
             }
         }
-        if (replacements.isEmpty()) return originalContent;
-        return applyReplacements(originalContent, replacements);
+        if (replacements.isEmpty()) return request;
+        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        int b;
+        try {
+            while (-1 != (b = inputStream.read())) {
+                bos.write(b);
+            }
+        } catch (IOException e) {
+            Stepper.montoya.logging().logToError("Stepper-NG: DVAR replacement error: " + e.getMessage());
+        }
+        return bos.toByteArray();
     }
 
     public static byte[] makeGvarReplacements(byte[] originalContent, DynamicGlobalVariableManager manager) {
+        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (StaticGlobalVariable svar : manager.getStaticVariables()) {
             if (svar.getValue() != null) {
                 String match = StaticGlobalVariable.createGvarString(svar.getIdentifier());
+                String replace = svar.getValue();
                 replacements.add(new ReplacingInputStream.Replacement(
                         match.getBytes(StandardCharsets.UTF_8),
-                        svar.getValue().getBytes(StandardCharsets.UTF_8)));
+                        replace.getBytes(StandardCharsets.UTF_8)));
             }
         }
-        if (replacements.isEmpty()) return originalContent;
-        return applyReplacements(originalContent, replacements);
+        if (replacements.isEmpty()) return request;
+        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        int b;
+        try {
+            while (-1 != (b = inputStream.read())) {
+                bos.write(b);
+            }
+        } catch (IOException e) {
+            Stepper.montoya.logging().logToError("Stepper-NG: GVAR replacement error: " + e.getMessage());
+        }
+        return bos.toByteArray();
     }
 }

@@ -195,14 +195,21 @@ public class StepConditionPanel extends JPanel {
         patternField.setVisible(!isAlways);
         matchModeCombo.setVisible(!isAlways);
 
+        // Retry is meaningless for "Always" — condition always triggers on the first attempt
+        retryLabel.setVisible(!isAlways);
+        retrySpinner.setVisible(!isAlways);
+
         boolean showGoto = actionCombo.getSelectedItem() == ConditionFailAction.GOTO_STEP;
         gotoCombo.setVisible(showGoto);
 
         int retries = (int) retrySpinner.getValue();
-        boolean showRetry = retries > 0;
-        delayLabel.setVisible(showRetry);
-        delaySpinner.setVisible(showRetry);
-        msLabel.setVisible(showRetry);
+        boolean showDelay = !isAlways && retries > 0;
+        delayLabel.setVisible(showDelay);
+        delaySpinner.setVisible(showDelay);
+        msLabel.setVisible(showDelay);
+
+        // For "Always", show "→" instead of ", then" since the action always fires unconditionally
+        thenLabel.setText(isAlways ? "→" : ", then");
 
         // Else action is visible when the condition is not "Always" (since Always always triggers)
         boolean showElse = !isAlways;

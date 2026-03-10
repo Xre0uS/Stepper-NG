@@ -45,22 +45,15 @@ jobs:
 
       - name: Detect version change
         id: version
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
-          CURRENT_VERSION=$(sed -n 's/.*String VERSION\s*=\s*"\([^"]*\)".*/\1/p' src/main/java/com/xreous/stepperng/Globals.java | head -1)
-          echo "current=$CURRENT_VERSION"
+          CURRENT_VERSION=$(grep -oP 'String VERSION\s*=\s*"\K[^"]+' src/main/java/com/xreous/stepperng/Globals.java)
+          PREVIOUS_VERSION=$(git show HEAD~1:src/main/java/com/xreous/stepperng/Globals.java 2>/dev/null | grep -oP 'String VERSION\s*=\s*"\K[^"]+' || echo "")
           echo "current=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          PREVIOUS_VERSION=""
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            PREVIOUS_VERSION=$(git show HEAD~1:src/main/java/com/xreous/stepperng/Globals.java 2>/dev/null | sed -n 's/.*String VERSION\s*=\s*"\([^"]*\)".*/\1/p' | head -1 || true)
-          fi
-          echo "previous=$PREVIOUS_VERSION"
-          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ] && [ -n "$CURRENT_VERSION" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Version changed: $PREVIOUS_VERSION -> $CURRENT_VERSION"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Version unchanged: $CURRENT_VERSION"
           fi
 
       - name: Create GitHub Release
