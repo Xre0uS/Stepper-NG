@@ -11,7 +11,7 @@ Examples & writeup: https://xreous.io/posts/stepper-ng/
 ### Quick Start
 1. **Create a sequence** — Click `+`, double-click the tab to rename it (e.g., `login-seq`).
 2. **Add steps** — Click `Add Step` or right-click any request in Burp → *Add to Stepper sequence*. Each step holds one HTTP request and they execute top-to-bottom.
-3. **Extract variables** — In a step's post-execution variable table, define a regex to capture values from the response (e.g., `"token":"(.*?)"` with identifier `jwt`). Tip: highlight text in a response and click **Auto Regex** to generate the pattern.
+3. **Extract variables** — In a step's post-execution variable table, define a regex to capture values from the response (e.g., `"token":"(.*?)"` with identifier `jwt`). Tip: click **Auto Regex** and highlight text in the response to generate the pattern.
 4. **Use variables** — In later steps, insert `$VAR:jwt$` anywhere in the request. It gets replaced with the captured value at execution time.
 5. **Run** — Click **Execute** at the bottom to run all steps in order.
 
