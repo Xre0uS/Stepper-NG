@@ -125,6 +125,10 @@ public class StepPanel extends JPanel implements StepVariableListener {
                         step.setRequestBody(currentRequest);
                     }
                     step.executeStep();
+                    step.setLastExecutionTime(System.currentTimeMillis());
+                    if (step.getSequence() != null) {
+                        step.getSequence().stepModified(step);
+                    }
                 }catch (SequenceCancelledException ignored){
                 }catch (Exception e){
                     String msg = e.getMessage();
@@ -235,6 +239,10 @@ public class StepPanel extends JPanel implements StepVariableListener {
 
     public void refreshValidationState() {
         if (conditionPanel != null) conditionPanel.refreshValidationState();
+    }
+
+    public void refreshStepCombos() {
+        if (conditionPanel != null) conditionPanel.refreshStepCombos();
     }
 
     public Step getStep() {

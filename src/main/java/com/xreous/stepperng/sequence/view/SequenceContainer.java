@@ -60,18 +60,26 @@ public class SequenceContainer extends JPanel {
         for (Step step : this.stepSequence.getSteps()) {
             addPanelForStep(step);
         }
+        refreshAllStepCombos();
 
         this.stepSequence.addStepListener(new StepAdapter(){
             @Override
-            public void onStepAdded(Step step) { addPanelForStep(step); }
+            public void onStepAdded(Step step) {
+                addPanelForStep(step);
+                refreshAllStepCombos();
+            }
             @Override
-            public void onStepRemoved(Step step) { removePanelForStep(step); }
+            public void onStepRemoved(Step step) {
+                removePanelForStep(step);
+                refreshAllStepCombos();
+            }
             @Override
             public void onStepUpdated(Step step) {
                 SwingUtilities.invokeLater(() -> {
                     syncTabOrderFromModel();
                     StepPanel panel = stepToPanelMap.get(step);
                     if (panel != null) panel.refreshValidationState();
+                    refreshAllStepCombos();
                 });
             }
         });
@@ -367,6 +375,14 @@ public class SequenceContainer extends JPanel {
 
     public StepPanel getPanelForStep(Step step){
         return this.stepToPanelMap.get(step);
+    }
+
+    private void refreshAllStepCombos() {
+        SwingUtilities.invokeLater(() -> {
+            for (StepPanel panel : stepToPanelMap.values()) {
+                panel.refreshStepCombos();
+            }
+        });
     }
 
     public void setActivePanel(StepPanel stepPanel){

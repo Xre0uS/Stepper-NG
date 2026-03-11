@@ -1,5 +1,6 @@
 package com.xreous.stepperng.about.view;
 
+import com.xreous.stepperng.Globals;
 import com.xreous.stepperng.Stepper;
 import com.xreous.stepperng.util.Utils;
 import com.xreous.stepperng.util.view.NoTextSelectionCaret;
@@ -25,7 +26,7 @@ public class AboutPanel extends JPanel {
         gbc.weightx = 1;
         gbc.weighty = 0;
         gbc.gridx = gbc.gridy = 1;
-        JLabel headerLabel = new JLabel("Stepper-NG");
+        JLabel headerLabel = new JLabel("Stepper-NG v" + Globals.VERSION);
         Font font = this.getFont().deriveFont(32f).deriveFont(this.getFont().getStyle() | Font.BOLD);
         headerLabel.setFont(font);
         headerLabel.setHorizontalAlignment(SwingConstants.CENTER);

@@ -190,6 +190,11 @@ public class StepConditionPanel extends JPanel {
         updateValidationStepState();
     }
 
+    public void refreshStepCombos() {
+        refreshStepCombo(gotoCombo);
+        refreshStepCombo(elseGotoCombo);
+    }
+
     private void updateFieldVisibility() {
         boolean isAlways = typeCombo.getSelectedItem() == StepCondition.ConditionType.ALWAYS;
         patternField.setVisible(!isAlways);
