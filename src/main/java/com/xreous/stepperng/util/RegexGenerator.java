@@ -120,7 +120,7 @@ public class RegexGenerator {
                 }
             }
             if (c == ':') {
-                // Try JSON key anchor first (handles "key":value for unquoted values like numbers)
+                // Try JSON key anchor first
                 String sub = before.substring(0, i + 1);
                 int keyMatch = findJsonKeyAnchor(sub);
                 if (keyMatch >= 0) {
@@ -150,7 +150,13 @@ public class RegexGenerator {
         }
 
         if (bestKeyStart >= 0) {
-            return before.substring(bestKeyStart);
+            String anchor = before.substring(bestKeyStart);
+            // If the key part of the anchor is very short, extend backward for uniqueness
+            if (anchorKeyLength(anchor) < 3 && bestKeyStart > 0) {
+                String extended = extendAnchorBackward(before, bestKeyStart);
+                if (extended != null) return extended;
+            }
+            return anchor;
         }
 
         int lastDelim = -1;
@@ -289,5 +295,54 @@ public class RegexGenerator {
             cursor = nextEnd;
         }
         return "";
+    }
+
+    private static int anchorKeyLength(String anchor) {
+        // Strip leading quotes
+        int i = 0;
+        while (i < anchor.length() && (anchor.charAt(i) == '"' || anchor.charAt(i) == '\'')) i++;
+        int start = i;
+        while (i < anchor.length() && (Character.isLetterOrDigit(anchor.charAt(i))
+                || anchor.charAt(i) == '_' || anchor.charAt(i) == '-' || anchor.charAt(i) == '.')) {
+            i++;
+        }
+        return i - start;
+    }
+
+    // Extend an anchor backward past the previous delimiter to include more unique context
+    private static String extendAnchorBackward(String before, int bestKeyStart) {
+        // Scan backward from bestKeyStart to find a preceding delimiter
+        int scan = bestKeyStart - 1;
+        // Skip whitespace
+        while (scan >= 0 && Character.isWhitespace(before.charAt(scan))) scan--;
+        if (scan < 0) return null;
+
+        // Look for the preceding comma, semicolon, opening brace, etc.
+        int limit = Math.max(0, bestKeyStart - 60);
+        int extStart = -1;
+
+        for (int i = scan; i >= limit; i--) {
+            char c = before.charAt(i);
+            if (c == ',' || c == ';' || c == '{' || c == '[' || c == '&' || c == '\t') {
+                extStart = i;
+                break;
+            }
+        }
+
+        if (extStart >= 0) {
+            String extended = before.substring(extStart);
+            if (extended.length() > 80) {
+                // Too long — trim from the delimiter
+                extended = before.substring(bestKeyStart > 20 ? bestKeyStart - 20 : 0);
+            }
+            return extended;
+        }
+
+        // If no delimiter found, just take more chars from further back
+        int take = Math.min(bestKeyStart, 30);
+        if (take > 0) {
+            return before.substring(bestKeyStart - take);
+        }
+        return null;
     }
 }

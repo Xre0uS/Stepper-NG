@@ -1,5 +1,6 @@
 package com.xreous.stepperng.step.view;
 
+import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
@@ -45,11 +46,11 @@ public class StepPanel extends JPanel implements StepVariableListener {
 
         this.requestEditor = Stepper.montoya.userInterface().createHttpRequestEditor();
         if(step.getRequest() != null && step.getRequest().length > 0) {
-            this.requestEditor.setRequest(HttpRequest.httpRequest(new String(step.getRequest())));
+            this.requestEditor.setRequest(HttpRequest.httpRequest(ByteArray.byteArray(step.getRequest())));
         }
         this.responseEditor = Stepper.montoya.userInterface().createHttpResponseEditor();
         if(step.getResponse() != null && step.getResponse().length > 0) {
-            this.responseEditor.setResponse(HttpResponse.httpResponse(new String(step.getResponse())));
+            this.responseEditor.setResponse(HttpResponse.httpResponse(ByteArray.byteArray(step.getResponse())));
         }
 
         JPanel responseWrapper = new JPanel(new BorderLayout());
@@ -233,7 +234,7 @@ public class StepPanel extends JPanel implements StepVariableListener {
 
     public void refreshRequestPanel() {
         if(this.step.getRequest() != null && this.step.getRequest().length > 0) {
-            this.requestEditor.setRequest(HttpRequest.httpRequest(new String(this.step.getRequest())));
+            this.requestEditor.setRequest(HttpRequest.httpRequest(ByteArray.byteArray(this.step.getRequest())));
         }
     }
 

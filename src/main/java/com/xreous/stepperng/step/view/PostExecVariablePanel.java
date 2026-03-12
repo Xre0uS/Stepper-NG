@@ -8,6 +8,8 @@ import com.xreous.stepperng.variable.RegexVariable;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.VariableManager;
 
+import com.xreous.stepperng.util.view.LineNumberGutter;
+
 import javax.swing.*;
 import javax.swing.text.DefaultHighlighter;
 import java.awt.*;
@@ -76,16 +78,22 @@ public class PostExecVariablePanel extends VariablePanel {
                 (Frame) SwingUtilities.getWindowAncestor(this),
                 "Auto-Generate Regex Variable", true);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        dialog.setMinimumSize(new Dimension(600, 400));
-        dialog.setSize(new Dimension(900, 650));
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        dialog.setMinimumSize(new Dimension(700, 500));
+        dialog.setSize(new Dimension(
+                Math.max(1200, (int)(screen.width * 0.6)),
+                Math.max(850, (int)(screen.height * 0.7))));
         dialog.setLocationRelativeTo(SwingUtilities.getWindowAncestor(this));
 
         JTextField nameField = new JTextField(20);
         JTextArea responseArea = new JTextArea(responseText);
         responseArea.setEditable(false);
-        responseArea.setLineWrap(false);
+        responseArea.setLineWrap(true);
+        responseArea.setWrapStyleWord(false);
         responseArea.setFont(editorFont);
         JScrollPane responseScroll = new JScrollPane(responseArea);
+        responseScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        responseScroll.setRowHeaderView(new LineNumberGutter(responseArea));
 
         JPanel searchBar = new JPanel(new BorderLayout(4, 0));
         searchBar.setBorder(BorderFactory.createCompoundBorder(

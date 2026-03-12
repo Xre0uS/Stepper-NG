@@ -27,13 +27,18 @@ public class Utils {
         return null;
     }
 
+    private static final int MIN_EDITOR_FONT_SIZE = 12;
+
     public static Font getEditorFont() {
         if (cachedEditorFont != null) return cachedEditorFont;
         try {
             var editor = Stepper.montoya.userInterface().createHttpRequestEditor();
             Component comp = editor.uiComponent();
-            Font found = findTextComponentFont(comp);
+            Font found = findMonoTextComponentFont(comp);
             if (found != null) {
+                if (found.getSize() < MIN_EDITOR_FONT_SIZE) {
+                    found = found.deriveFont((float) MIN_EDITOR_FONT_SIZE);
+                }
                 cachedEditorFont = found;
                 return found;
             }
@@ -42,17 +47,24 @@ public class Utils {
         return cachedEditorFont;
     }
 
-    private static Font findTextComponentFont(Component comp) {
+    // Traverse the component tree for a JTextComponent whose font is monospaced.
+    private static Font findMonoTextComponentFont(Component comp) {
         if (comp instanceof javax.swing.text.JTextComponent tc) {
             Font f = tc.getFont();
-            if (f != null && f.getSize() >= 8) return f;
+            if (f != null && f.getSize() >= 8 && looksMonospaced(f)) return f;
         }
         if (comp instanceof Container container) {
             for (Component child : container.getComponents()) {
-                Font f = findTextComponentFont(child);
+                Font f = findMonoTextComponentFont(child);
                 if (f != null) return f;
             }
         }
         return null;
+    }
+
+    private static boolean looksMonospaced(Font f) {
+        Canvas c = new Canvas();
+        FontMetrics fm = c.getFontMetrics(f);
+        return fm.charWidth('i') == fm.charWidth('W');
     }
 }
