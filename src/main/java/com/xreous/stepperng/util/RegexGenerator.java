@@ -150,7 +150,13 @@ public class RegexGenerator {
         }
 
         if (bestKeyStart >= 0) {
-            return before.substring(bestKeyStart);
+            String anchor = before.substring(bestKeyStart);
+            // If the key part of the anchor is very short, extend backward for uniqueness
+            if (anchorKeyLength(anchor) < 3 && bestKeyStart > 0) {
+                String extended = extendAnchorBackward(before, bestKeyStart);
+                if (extended != null) return extended;
+            }
+            return anchor;
         }
 
         int lastDelim = -1;
@@ -289,5 +295,60 @@ public class RegexGenerator {
             cursor = nextEnd;
         }
         return "";
+    }
+
+    /** Return the length of the leading alphanumeric/identifier portion of an anchor string. */
+    private static int anchorKeyLength(String anchor) {
+        // Strip leading quotes
+        int i = 0;
+        while (i < anchor.length() && (anchor.charAt(i) == '"' || anchor.charAt(i) == '\'')) i++;
+        int start = i;
+        while (i < anchor.length() && (Character.isLetterOrDigit(anchor.charAt(i))
+                || anchor.charAt(i) == '_' || anchor.charAt(i) == '-' || anchor.charAt(i) == '.')) {
+            i++;
+        }
+        return i - start;
+    }
+
+    /**
+     * Extend an anchor backward past the previous delimiter to include more unique context.
+     * For example, for before="oneTimeToken":"53ea...","t":" and bestKeyStart pointing to "t",
+     * this will include the preceding key-value pair tail to form a longer, more unique prefix.
+     */
+    private static String extendAnchorBackward(String before, int bestKeyStart) {
+        // Scan backward from bestKeyStart to find a preceding delimiter
+        int scan = bestKeyStart - 1;
+        // Skip whitespace
+        while (scan >= 0 && Character.isWhitespace(before.charAt(scan))) scan--;
+        if (scan < 0) return null;
+
+        // Look for the preceding comma, semicolon, opening brace, etc.
+        // Walk back up to 60 chars to find a useful chunk
+        int limit = Math.max(0, bestKeyStart - 60);
+        int extStart = -1;
+
+        for (int i = scan; i >= limit; i--) {
+            char c = before.charAt(i);
+            if (c == ',' || c == ';' || c == '{' || c == '[' || c == '&' || c == '\t') {
+                extStart = i;
+                break;
+            }
+        }
+
+        if (extStart >= 0) {
+            String extended = before.substring(extStart);
+            if (extended.length() > 80) {
+                // Too long — trim from the delimiter
+                extended = before.substring(bestKeyStart > 20 ? bestKeyStart - 20 : 0);
+            }
+            return extended;
+        }
+
+        // If no delimiter found, just take more chars from further back
+        int take = Math.min(bestKeyStart, 30);
+        if (take > 0) {
+            return before.substring(bestKeyStart - take);
+        }
+        return null;
     }
 }

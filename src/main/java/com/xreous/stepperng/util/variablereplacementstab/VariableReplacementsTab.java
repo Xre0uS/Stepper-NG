@@ -14,6 +14,7 @@ import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.listener.StepVariableListener;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.util.view.WrappedTextPane;
+import com.xreous.stepperng.util.view.LineNumberGutter;
 
 import javax.swing.*;
 import javax.swing.text.*;
@@ -61,6 +62,7 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
         this.document = this.textArea.getStyledDocument();
         this.scrollPane = new JScrollPane(this.textArea);
         this.scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        this.scrollPane.setRowHeaderView(new LineNumberGutter(this.textArea));
         this.scrollPane.setBorder(null);
         this.textArea.setBorder(null);
 
