@@ -11,6 +11,10 @@ public class Utils {
 
     private static Font cachedEditorFont = null;
 
+    public static void clearCaches() {
+        cachedEditorFont = null;
+    }
+
     public static ImageIcon loadImage(String filename, int width, int height){
         ClassLoader cldr = Utils.class.getClassLoader();
         URL imageURLMain = cldr.getResource(filename);

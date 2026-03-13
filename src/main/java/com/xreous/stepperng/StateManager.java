@@ -12,6 +12,7 @@ import com.xreous.stepperng.variable.DynamicGlobalVariableManager;
 import com.xreous.stepperng.variable.StaticGlobalVariable;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.listener.StepVariableListener;
+import com.xreous.stepperng.util.Utils;
 
 import java.util.ArrayList;
 import java.util.concurrent.Executors;
@@ -151,5 +152,6 @@ public class StateManager implements StepSequenceListener, StepListener, StepVar
         } catch (Exception ignored) {}
         unloaded = true;
         saveScheduler.shutdownNow();
+        Utils.clearCaches();
     }
 }
