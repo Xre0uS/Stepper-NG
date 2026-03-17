@@ -39,19 +39,21 @@ Stepper-NG can replace Burp's built-in session handling rules + macros. The idea
 - **Passthrough sync**: Published variables silently capture matching values from any HTTP response flowing through Burp (proxy, repeater, scanner). If a token is refreshed through normal browser activity, the variable updates without re-running the sequence.
 
 ### Conditional Steps
-Each step can have a condition evaluated after execution:
+Each step can have a condition evaluated after execution. It reads like a natural if/else:
 
-- **Condition types**: Response body / Status line (with matches/doesn't match) or **Always** (unconditional).
-- **Actions** (when condition triggers): Continue to next step, Skip remaining steps, or Go to a named step.
-- **Retry**: Re-execute the step N× with a configurable delay. The action fires on the first successful match and remaining retries are skipped.
-- **Else**: When the condition doesn't trigger after all retries, an else action fires — enabling if/else branching within a sequence.
-- When set to **Always**, retry and else are hidden since the action fires unconditionally.
+> **If** status line **matches** `200` → **then** skip remaining steps. **Else** → continue.
 
-| Condition | Retry | Then | Else | Use case |
-|-----------|-------|------|------|----------|
-| If status matches `200` | — | Skip remaining | Continue | Session valid → stop; invalid → keep going |
-| If status matches `200` | 2× 500ms | Skip remaining | Continue | Retry refresh; success → done, else → full login |
-| If response matches `"error"` | — | Go to step (login) | Continue | Error → jump to login; no error → proceed |
+- **Condition types**: Status line / Response body (matches or doesn't match a regex), or **Always** (unconditional).
+- **Then**: Fires when the condition is **true**. Actions: Continue to next step, Skip remaining steps, or Go to a named step.
+- **Else**: Fires when the condition is **false**. Same action options. Hidden when set to **Always**.
+- **Retry**: When the condition is true and retries are configured, the step re-executes up to N× with a configurable delay. If a retry makes the condition false, remaining retries are skipped and the Else action fires. If the condition is still true after all retries, the Then action fires.
+- **Always**: Condition is always true — Then fires unconditionally. Retry and Else are hidden.
+
+| Condition | Retry | Then (true) | Else (false) | Use case |
+|-----------|-------|-------------|--------------|----------|
+| If status matches `200` | — | Skip remaining | Continue | 200 = valid session → skip; non-200 → keep going |
+| If status doesn't match `200` | 1× 500ms | Continue | Go to step (fetch-csrf) | Refresh failed → retry once, still failing → full login; got 200 → skip to CSRF |
+| If response matches `"error"` | — | Go to step (login) | Continue | Error found → jump to login; clean → proceed |
 | Always | — | Skip remaining | *(hidden)* | Unconditionally stop after this step |
 
 ### Session Validation
