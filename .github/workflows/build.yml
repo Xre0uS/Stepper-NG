@@ -19,7 +19,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 2
+          fetch-depth: 1
+          fetch-tags: true
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
@@ -48,12 +49,13 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
           CURRENT_VERSION=$(grep -oP 'String VERSION\s*=\s*"\K[^"]+' src/main/java/com/xreous/stepperng/Globals.java)
-          PREVIOUS_VERSION=$(git show HEAD~1:src/main/java/com/xreous/stepperng/Globals.java 2>/dev/null | grep -oP 'String VERSION\s*=\s*"\K[^"]+' || echo "")
           echo "current=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ] && [ -n "$CURRENT_VERSION" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ -z "$CURRENT_VERSION" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+          elif git rev-parse "v$CURRENT_VERSION" >/dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
