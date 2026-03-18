@@ -12,7 +12,8 @@ public class DynamicGlobalVariableSerializer implements JsonSerializer<DynamicGl
         String identifier = obj.has("identifier") ? obj.get("identifier").getAsString() : "";
         String regex = obj.has("regex") ? obj.get("regex").getAsString() : "";
         String hostFilter = obj.has("hostFilter") ? obj.get("hostFilter").getAsString() : null;
-        DynamicGlobalVariable var = new DynamicGlobalVariable(identifier, regex, hostFilter);
+        boolean captureFromRequests = obj.has("captureFromRequests") && obj.get("captureFromRequests").getAsBoolean();
+        DynamicGlobalVariable var = new DynamicGlobalVariable(identifier, regex, hostFilter, captureFromRequests);
         if (obj.has("value") && !obj.get("value").isJsonNull()) {
             var.setValue(obj.get("value").getAsString());
         }
@@ -26,6 +27,9 @@ public class DynamicGlobalVariableSerializer implements JsonSerializer<DynamicGl
         obj.addProperty("regex", src.getRegexString());
         if (src.getHostFilter() != null) {
             obj.addProperty("hostFilter", src.getHostFilter());
+        }
+        if (src.isCaptureFromRequests()) {
+            obj.addProperty("captureFromRequests", true);
         }
         return obj;
     }

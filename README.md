@@ -61,7 +61,7 @@ Set a **Validation Step** on a sequence (dropdown at the bottom of the sequence 
 
 ### Global Variables
 - **Static** (`$GVAR:name$`): Manual key-value pairs in the Global Variables tab. Useful for credentials, hostnames, or any constant.
-- **Dynamic** (`$DVAR:name$`): Define a regex + optional host filter. Values auto-update from all HTTP responses flowing through Burp. Inspired by [burp_variables](https://github.com/0xceba/burp_variables).
+- **Dynamic** (`$DVAR:name$`): Define a regex + optional host filter. Values auto-update from all HTTP responses flowing through Burp. Enable **"Also capture from requests"** to extract client-side generated values (e.g., JS-computed tokens, nonces) from outgoing requests — only scans requests when at least one DVAR has this enabled. Inspired by [burp_variables](https://github.com/0xceba/burp_variables).
 
 ### Shared Variable Names
 When multiple steps extract the same logical value (e.g., a JWT) from different endpoints with different response formats, give them the same identifier. After either step executes, the value syncs to the same-named variable in other steps. Only one needs to be published.

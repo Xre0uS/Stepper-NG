@@ -47,6 +47,21 @@ public class DynamicGlobalVariableManager {
         }
     }
 
+     // Only call this when hasRequestCaptureDvars() returns true.
+    public void processRequest(String requestText, String host) {
+        for (DynamicGlobalVariable variable : variables) {
+            variable.updateFromRequest(requestText, host);
+        }
+    }
+
+
+    public boolean hasRequestCaptureDvars() {
+        for (DynamicGlobalVariable variable : variables) {
+            if (variable.isCaptureFromRequests()) return true;
+        }
+        return false;
+    }
+
     public void addVariableListener(StepVariableListener listener) {
         listeners.add(listener);
     }

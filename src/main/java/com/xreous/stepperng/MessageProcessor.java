@@ -174,6 +174,14 @@ public class MessageProcessor implements HttpHandler {
             String requestString = new String(requestBytes);
             boolean hasDollar = requestString.indexOf('$') >= 0;
 
+            // Capture DVARs from the request (client-side generated values) — before replacements
+            if (dynamicGlobalVariableManager != null && dynamicGlobalVariableManager.hasRequestCaptureDvars()) {
+                try {
+                    String host = request.httpService() != null ? request.httpService().host() : null;
+                    dynamicGlobalVariableManager.processRequest(requestString, host);
+                } catch (Exception ignored) {}
+            }
+
             if (hasDollar) {
                 Set<StepSequence> autoExecSequences = sequenceManager.getSequencesToAutoExecute(requestString);
                 if (!autoExecSequences.isEmpty()) {

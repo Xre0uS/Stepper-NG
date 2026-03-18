@@ -3,10 +3,12 @@ package com.xreous.stepperng;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
+import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.sequencemanager.SequenceManager;
 import com.xreous.stepperng.step.view.StepPanel;
 import com.xreous.stepperng.sequence.view.StepSequenceTab;
+import com.xreous.stepperng.util.AutoRegexDialog;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.DynamicGlobalVariable;
 import com.xreous.stepperng.variable.DynamicGlobalVariableManager;
@@ -82,6 +84,10 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
         if (!dvarItems.isEmpty()) menuItems.addAll(dvarItems);
         List<Component> gvarItems = buildStaticVarMenuItems();
         if (!gvarItems.isEmpty()) menuItems.addAll(gvarItems);
+
+        // Auto-regex from message editor
+        List<Component> autoRegexItems = buildAutoRegexMenuItems(event);
+        if (!autoRegexItems.isEmpty()) menuItems.addAll(autoRegexItems);
 
         return menuItems;
     }
@@ -238,6 +244,76 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
             gvarMenu.add(item);
         }
         menuItems.add(gvarMenu);
+        return menuItems;
+    }
+
+    private List<Component> buildAutoRegexMenuItems(ContextMenuEvent event) {
+        List<Component> menuItems = new ArrayList<>();
+
+        if (event.messageEditorRequestResponse().isEmpty()) return menuItems;
+
+        MessageEditorHttpRequestResponse editorMsg = event.messageEditorRequestResponse().get();
+        HttpRequestResponse reqResp = editorMsg.requestResponse();
+        if (reqResp == null) return menuItems;
+
+        MessageEditorHttpRequestResponse.SelectionContext selCtx = editorMsg.selectionContext();
+        boolean isResponse = (selCtx == MessageEditorHttpRequestResponse.SelectionContext.RESPONSE);
+        boolean isRequest = (selCtx == MessageEditorHttpRequestResponse.SelectionContext.REQUEST);
+
+        // Only show if we have the relevant message data
+        byte[] messageBytes;
+        String label;
+        if (isResponse && reqResp.response() != null) {
+            messageBytes = reqResp.response().toByteArray().getBytes();
+            label = "response";
+        } else if (isRequest && reqResp.request() != null) {
+            messageBytes = reqResp.request().toByteArray().getBytes();
+            label = "request";
+        } else {
+            return menuItems;
+        }
+
+        if (messageBytes.length == 0) return menuItems;
+
+        String messageText = new String(messageBytes);
+
+        // Extract pre-selection from Burp's editor
+        String preSelection = null;
+        int preSelOffset = -1;
+        if (editorMsg.selectionOffsets().isPresent()) {
+            burp.api.montoya.core.Range range = editorMsg.selectionOffsets().get();
+            int start = range.startIndexInclusive();
+            int end = range.endIndexExclusive();
+            if (start >= 0 && end > start && end <= messageBytes.length) {
+                preSelection = new String(messageBytes, start, end - start);
+                preSelOffset = start;
+            }
+        }
+
+        final String fPreSelection = preSelection;
+        final int fPreSelOffset = preSelOffset;
+        final String fLabel = label;
+
+        JMenuItem autoRegexItem = new JMenuItem("Stepper-NG: Auto-Regex (" + label + ")");
+        autoRegexItem.addActionListener(actionEvent -> {
+            Component parent = Stepper.getUI() != null ? Stepper.getUI().getUiComponent() : null;
+            AutoRegexDialog.Result result = AutoRegexDialog.show(
+                    parent, messageText,
+                    "Auto-Generate Regex — " + fLabel,
+                    fLabel, fPreSelection, fPreSelOffset);
+
+            if (result != null && !result.regex.isEmpty()) {
+                // Offer to create a DVAR or copy
+                DynamicGlobalVariableManager manager = Stepper.getDynamicGlobalVariableManager();
+                if (manager != null) {
+                    String varName = result.variableName.isEmpty()
+                            ? "auto_" + System.currentTimeMillis()
+                            : result.variableName;
+                    manager.addVariable(new DynamicGlobalVariable(varName, result.regex, null));
+                }
+            }
+        });
+        menuItems.add(autoRegexItem);
         return menuItems;
     }
 }

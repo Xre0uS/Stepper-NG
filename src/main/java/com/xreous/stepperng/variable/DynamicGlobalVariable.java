@@ -13,15 +13,21 @@ public class DynamicGlobalVariable extends StepVariable {
     private Pattern regex;
     private String hostFilter;
     private Pattern hostPattern;
+    private boolean captureFromRequests;
 
     public DynamicGlobalVariable() {
         this("", null, null);
     }
 
     public DynamicGlobalVariable(String identifier, String regexString, String hostFilter) {
+        this(identifier, regexString, hostFilter, false);
+    }
+
+    public DynamicGlobalVariable(String identifier, String regexString, String hostFilter, boolean captureFromRequests) {
         super(identifier);
         setRegex(regexString);
         setHostFilter(hostFilter);
+        this.captureFromRequests = captureFromRequests;
     }
 
     @Override
@@ -72,8 +78,18 @@ public class DynamicGlobalVariable extends StepVariable {
     public boolean updateFromResponse(String responseText, String host) {
         if (regex == null || responseText == null) return false;
         if (!matchesHost(host)) return false;
+        return applyRegex(responseText);
+    }
 
-        Matcher m = regex.matcher(responseText);
+    public boolean updateFromRequest(String requestText, String host) {
+        if (!captureFromRequests) return false;
+        if (regex == null || requestText == null) return false;
+        if (!matchesHost(host)) return false;
+        return applyRegex(requestText);
+    }
+
+    private boolean applyRegex(String text) {
+        Matcher m = regex.matcher(text);
         if (m.find()) {
             String oldValue = this.value;
             if (m.groupCount() > 0) {
@@ -87,6 +103,14 @@ public class DynamicGlobalVariable extends StepVariable {
             }
         }
         return false;
+    }
+
+    public boolean isCaptureFromRequests() {
+        return captureFromRequests;
+    }
+
+    public void setCaptureFromRequests(boolean captureFromRequests) {
+        this.captureFromRequests = captureFromRequests;
     }
 
     public boolean isValid() {
