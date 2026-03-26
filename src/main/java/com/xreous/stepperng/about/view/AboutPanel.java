@@ -98,200 +98,77 @@ public class AboutPanel extends JPanel {
         StyleConstants.setItalic(italics, true);
 
         try {
-            String intro = "Stepper-NG is a natural evolution of Burp Suite's Repeater tool, " +
-                    "providing the ability to create sequences of steps and define regular expressions to extract " +
-                    "values from responses which can then be used in subsequent steps. " +
-                    "Based on the original Stepper by CoreyD97, migrated to the Montoya API " +
-                    "and extended with global variables, auto-regex generation, published variables " +
-                    "for automatic session management, conditional step execution, and more.\n\n";
+            String intro = "A multi-stage repeater for Burp Suite. Build request sequences, extract values " +
+                    "with regex, and chain them across steps. Replaces session handling macros with " +
+                    "automatic token management via published variables.\n\n";
 
             String quickStartHeader = "Quick Start:\n";
-            String quickStart = "1. Create a sequence with +, double-click the tab to rename it (e.g. login-seq).\n" +
-                    "2. Add steps manually or via right-click \u2192 Add to Stepper sequence from any Burp tool.\n" +
-                    "3. Define post-execution variables with regex to capture response values (or highlight text and click Auto Regex).\n" +
-                    "4. Use $VAR:name$ in later steps to insert captured values.\n" +
-                    "5. Click Execute to run all steps in order.\n\n" +
-                    "For automatic session handling:\n" +
-                    "1. Publish a variable (check the Published checkbox on a post-execution variable).\n" +
-                    "2. Use $VAR:login-seq:jwt$ in Repeater/Intruder/Scanner \u2014 the sequence auto-executes when referenced.\n" +
-                    "3. Set a Validation Step to skip the sequence when the session is still valid.\n" +
-                    "4. Set Validate every N requests in Preferences to throttle during scans.\n\n";
+            String quickStart = "1. Create a sequence with +, rename the tab.\n" +
+                    "2. Add steps via the + tab or right-click \u2192 Add to Stepper sequence.\n" +
+                    "3. Define regex variables to extract response values (or highlight text \u2192 Auto Regex).\n" +
+                    "4. Use $VAR:name$ in later steps. Click Execute to run.\n\n" +
+                    "For auto session handling: publish a variable, reference it as $VAR:seq:name$ in other tools, " +
+                    "and the sequence auto-executes when needed.\n\n";
 
-            String instructionsHeader = "Detailed Instructions:\n";
-            String instructions = "1. Create a new sequence. Double-click the title to set a suitable name.\n" +
-                    "2. Add your steps to the sequence manually, or using the context menu entry.\n" +
-                    "3. Optional: Define variables for steps.\n" +
-                    "  \u2022 Pre-execution variables obtain their value before the step is run. Useful for one-time passcodes etc.\n" +
-                    "  \u2022 Post-execution variables extract their value from the step's response using regular expressions.\n" +
-                    "  Tip: You can execute a single step to test your regular expressions using the button in the top right.\n" +
-                    "  Tip: Highlight text in a response and click Auto Regex to generate a pattern automatically.\n" +
-                    "4. Execute the entire sequence using the button at the bottom of the panel.\n\n" +
-                    "Steps can be rearranged by right-clicking their tab.\n\n";
+            String syntaxHeader = "Variable Syntax:\n";
+            String syntax = "$VAR:name$  \u2192  within the same sequence\n" +
+                    "$VAR:SeqName:name$  \u2192  cross-sequence / other tools\n" +
+                    "$GVAR:name$  \u2192  static global (manual key-value)\n" +
+                    "$DVAR:name$  \u2192  dynamic global (auto-extracted from responses)\n\n";
 
-            String globalVarsHeader = "Global Variables:\n";
-            String globalVars = "The Global Variables tab provides two types of variables available across all Burp tools:\n\n" +
-                    "Static Global Variables: Simple key-value pairs you set manually. " +
-                    "Use $GVAR:name$ in any request to substitute the value.\n\n" +
-                    "Dynamic Global Variables: Define a regex pattern and Stepper-NG will automatically extract " +
-                    "matching values from all HTTP responses flowing through Burp. " +
-                    "Optionally filter by host regex. Use $DVAR:name$ in any request to substitute the latest matched value.\n\n";
+            String regexHeader = "Regex Variables:\n";
+            String regex = "Post-execution variables use regex on the response. First capture group is used as the value. " +
+                    "No groups = whole match. Non-capturing: (?:REGEX)\n" +
+                    "Example: Response \"Hello World!\" with regex Hello (World|Earth)! \u2192 World\n\n";
 
-            String variableHelpHeader = "Step Variables:\n";
-            String variableHelp = "Variables can be defined within each step of a sequence.\n" +
-                    "Pre-execution Variables: Prompts the user for a value before the step runs.\n" +
-                    "Post-execution Variables: Define a regex to extract data from a step's response.\n" +
-                    "All variables may be updated in later steps after their definition.\n\n";
+            String featuresHeader = "Key Features:\n";
+            String features =
+                    "\u2022 Published Variables - Mark a variable as \"published\" to expose it outside the sequence. " +
+                    "When any tool (Scanner, Intruder, Repeater) sends a request containing $VAR:seq:name$, " +
+                    "the owning sequence auto-executes to provide a fresh value. Combined with Burp session " +
+                    "handling rules this gives fully automatic token/session management.\n\n" +
 
-            String regularExpressionHeader = "Post-Execution (Regex) Variables:\n";
-            String regularExpressionHelp = "Variables defined with a regular expression are updated each time " +
-                    "the step in which they are defined is executed.\n" +
-                    "The regular expression is executed on the response, with the first match being used as the new value.\n" +
-                    "If the regex has no groups, the whole match will be used.\n" +
-                    "If the regex defines capture groups, the first group will be used.\n" +
-                    "For non-capturing groups, use: (?:REGEX)\n\n";
+                    "\u2022 Passthrough & Sync - Published variables also update passively: every response " +
+                    "flowing through Burp is matched against their regex patterns. This keeps tokens current " +
+                    "without re-running the sequence, so the next substitution uses the latest value.\n\n" +
 
-            String regularExpressionExampleHeader = "Example: \n";
-            String regularExpressionExample = "Response: \"Hello People, Hello World!\"\n" +
-                    "Expression: World|Earth, Result: World\n" +
-                    "Expression: Hello (World|Earth)!, Result: World\n" +
-                    "Expression: (?:Goodbye|Hello) (World)!, Result: World\n\n";
+                    "\u2022 Conditional Steps - Each step can have an if/else condition based on status code or " +
+                    "response body regex. On match you can continue, skip, goto another step, or retry up to N " +
+                    "times with a configurable delay. This allows branching logic such as retrying on rate-limit " +
+                    "responses or skipping optional steps.\n\n" +
 
-            String variableUsageHeader = "Variable Usage:\n";
-            String variableInsertion = "To use a variable in a request, insert it using the syntax below:\n";
-            String variableExampleSequenceTitle = "In a sequence:  ";
-            String variableExampleSequenceUsage = "$VAR:VARIABLE_IDENTIFIER$\n";
-            String variableExampleToolTitle = "In other tools:  ";
-            String variableExampleToolUsage = "$VAR:SEQUENCE_NAME:VARIABLE_IDENTIFIER$\n";
-            String variableExampleGvarTitle = "Static global:  ";
-            String variableExampleGvarUsage = "$GVAR:VARIABLE_NAME$\n";
-            String variableExampleDvarTitle = "Dynamic global:  ";
-            String variableExampleDvarUsage = "$DVAR:VARIABLE_NAME$\n\n";
+                    "\u2022 Validation Step (Pre-Validation) - Designate one step as the validation step. It runs " +
+                    "before the rest of the sequence: if its condition passes (e.g. session cookie still valid), " +
+                    "the remaining steps are skipped entirely. Set \"validate every N requests\" to reduce " +
+                    "overhead during high-volume scanning.\n\n" +
 
-            String stepExecutionHeader = "Executing Sequences From Other Tools:\n";
-            String stepExecutionUsageA = "To execute a sequence before or after a request in another tool, " +
-                    "add the headers ";
-            String stepExecutionUsageItalics = "\"X-Stepper-Execute-Before: SEQUENCENAME\" " +
-                    "or \"X-Stepper-Execute-After: SEQUENCENAME\"";
-            String stepExecutionUsageB = " to the request. This will cause the sequence to be executed and variables " +
-                    "to be updated every time the request is sent.\n\n";
+                    "\u2022 Post-Validation Step - Runs after the sequence completes to verify recovery succeeded. " +
+                    "If the post-validation condition fails repeatedly, Stepper pauses Burp's task execution " +
+                    "engine to prevent wasting requests with bad credentials, and alerts you to intervene.\n\n" +
 
-            String sequenceArgsHeader = "Passing Arguments to Sequences:\n";
-            String sequenceArgsA = "You can pass arguments to sequences to override global variable values during execution. " +
-                    "This is useful when a sequence needs dynamic values that match the current request.\n\n" +
-                    "Option 1 — Inline with the execute header:\n";
-            String sequenceArgsBItalics = "\"X-Stepper-Execute-Before: SEQNAME: var1=value1; var2=value2\"\n\n";
-            String sequenceArgsC = "Option 2 — Dedicated argument header (one per header, supports any value):\n";
-            String sequenceArgsDItalics = "\"X-Stepper-Argument: var=value\"\n\n";
+                    "\u2022 Shared variable names - same identifier across steps syncs values automatically.\n" +
+                    "\u2022 Hold requests - block concurrent workers until the sequence finishes (Preferences).\n" +
+                    "\u2022 Global variables - static ($GVAR:) and dynamic ($DVAR:) across all tools.\n" +
+                    "\u2022 Auto-backup - periodic JSON backups, restorable via Import.\n" +
+                    "\u2022 Sequence args - X-Stepper-Execute-Before/After headers with inline variables.\n" +
+                    "\u2022 Disable steps/sequences - right-click to toggle.\n" +
+                    "\u2022 Stepper Replacements tab - preview variable substitutions with highlighting.\n" +
+                    "\u2022 Sequence Overview tab - summary of all steps, conditions, and variables.\n" +
+                    "\u2022 Loop prevention - max depth " + Globals.MAX_SEQUENCE_DEPTH + ", circular dependency detection.\n\n";
 
-            String disableStepsHeader = "Disabling Steps:\n";
-            String disableStepsText = "Right-click a step tab to enable or disable it. " +
-                    "Disabled steps are skipped during sequence execution. " +
-                    "This is useful for testing whether specific steps can be bypassed.\n\n";
-
-            String disableSeqHeader = "Disabling Sequences:\n";
-            String disableSeqText = "Right-click a sequence tab to enable or disable it. " +
-                    "When disabled, $VAR: references are left as literal text, the sequence won't auto-execute, " +
-                    "and passthrough sync is skipped. The tab shows a \u2298 prefix.\n\n";
-
-            String sharedVarsHeader = "Shared Variable Names:\n";
-            String sharedVarsText = "When multiple steps extract the same logical value (e.g. a JWT) from different " +
-                    "endpoints with different response formats, give them the same variable identifier. " +
-                    "After either step executes, the captured value syncs to same-named variables in other steps. " +
-                    "Only one needs to be published. This also works with passthrough sync.\n\n";
-
-            String conditionsHeader = "Conditional Steps:\n";
-            String conditionsText = "Each step can have a condition evaluated after execution. " +
-                    "Condition types: Response body or Status line (with matches/does not match), or Always (fires unconditionally). " +
-                    "Actions: Continue to next step, Skip remaining steps, or Go to step. " +
-                    "For pattern-based conditions, configure retry N\u00d7 with a delay between attempts. " +
-                    "An else action fires when the condition does not trigger (after all retries are exhausted), " +
-                    "enabling if/else branching — e.g., retry refresh 2\u00d7, skip if 200, else continue to full login. " +
-                    "When set to Always, retry and else are ignored since the action always fires.\n\n";
-
-            String sessionHeader = "Session Validation:\n";
-            String sessionText = "Set a Validation Step on a sequence to enable session validation mode. " +
-                    "Configure the step's condition to describe what a valid session looks like, " +
-                    "e.g. \"If status line matches 200\". " +
-                    "When the condition triggers, the session is valid and the rest of the sequence is skipped. " +
-                    "When it doesn't trigger, the session is invalid and the full sequence runs.\n\n";
-
-            String autoSessionHeader = "Auto Session Handler:\n";
-            String autoSessionText = "Published variables drive session management automatically. " +
-                    "When an outgoing request contains $VAR:SequenceName:varName$ referencing a published variable, " +
-                    "Stepper-NG auto-executes the owning sequence. " +
-                    "Use Burp's session handling rules to inject $VAR:seq:name$ into headers/cookies. " +
-                    "The validation step runs first — if the session is valid, the rest is skipped. " +
-                    "Use 'Validate every N requests' in Preferences to throttle checks during scans.\n\n";
-
-            String overviewHeader = "Sequence Overview:\n";
-            String overviewText = "Each sequence has an Overview tab that displays a summary table of all steps " +
-                    "with their status, target, conditions, variables, and actions at a glance.\n\n";
-
-            String publishedVarsHeader = "Published Variables:\n";
-            String publishedVarsText = "Mark any post-execution variable as Published using the checkbox in the variable table. " +
-                    "When an outgoing request contains $VAR:SequenceName:varName$ referencing a published variable, " +
-                    "the sequence automatically executes before the request — no X-Stepper-Execute-Before header needed. " +
-                    "Combined with validation steps, this gives you fully automatic token management.\n\n";
-
-            String passthroughHeader = "Passthrough Variable Sync:\n";
-            String passthroughText = "Published regex variables automatically update when matching patterns are found " +
-                    "in responses flowing through Burp (proxy, repeater, etc.). " +
-                    "This means if tokens are refreshed through normal browsing, Stepper-NG captures the new values " +
-                    "without needing to re-run the sequence.\n\n";
-
-            String loopPreventionHeader = "Infinite Loop Prevention:\n";
-            String loopPreventionText = "Stepper-NG tracks the chain of executing sequences on each thread. " +
-                    "If a sequence is already on the execution stack (circular dependency), it is skipped. " +
-                    "A maximum nesting depth of " + com.xreous.stepperng.Globals.MAX_SEQUENCE_DEPTH + " prevents runaway execution.\n";
+            String sessionActionHeader = "Session Handling Action:\n";
+            String sessionAction = "For Extensions scope, add \"Stepper-NG: Variable Replacement for Extensions\" as a session handling " +
+                    "action after the rule that injects $VAR: references. This resolves them inside the session " +
+                    "handling phase since the HTTP handler runs before session rules for extensions.\n";
 
             String[] sections = new String[]{
                     intro, quickStartHeader, quickStart,
-                    instructionsHeader, instructions,
-                    globalVarsHeader, globalVars,
-                    variableHelpHeader, variableHelp,
-                    regularExpressionHeader, regularExpressionHelp,
-                    regularExpressionExampleHeader, regularExpressionExample,
-                    variableUsageHeader, variableInsertion,
-                    variableExampleSequenceTitle, variableExampleSequenceUsage,
-                    variableExampleToolTitle, variableExampleToolUsage,
-                    variableExampleGvarTitle, variableExampleGvarUsage,
-                    variableExampleDvarTitle, variableExampleDvarUsage,
-                    stepExecutionHeader, stepExecutionUsageA,
-                    stepExecutionUsageItalics, stepExecutionUsageB,
-                    sequenceArgsHeader, sequenceArgsA, sequenceArgsBItalics,
-                    sequenceArgsC, sequenceArgsDItalics,
-                    disableStepsHeader, disableStepsText,
-                    disableSeqHeader, disableSeqText,
-                    sharedVarsHeader, sharedVarsText,
-                    conditionsHeader, conditionsText,
-                    sessionHeader, sessionText,
-                    autoSessionHeader, autoSessionText,
-                    publishedVarsHeader, publishedVarsText,
-                    passthroughHeader, passthroughText,
-                    loopPreventionHeader, loopPreventionText,
-                    overviewHeader, overviewText};
+                    syntaxHeader, syntax,
+                    regexHeader, regex,
+                    featuresHeader, features,
+                    sessionActionHeader, sessionAction};
             Style[] styles = new Style[]{
                     italics, bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    null, italics,
-                    null, italics,
-                    null, italics,
-                    null, italics,
-                    bold, null,
-                    italics, null,
-                    bold, null, italics,
-                    null, italics,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
-                    bold, null,
                     bold, null,
                     bold, null,
                     bold, null,

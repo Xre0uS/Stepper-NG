@@ -18,6 +18,7 @@ public class Step {
 
     private final List<StepExecutionListener> executionListeners;
     private final StepVariableManager variableManager;
+    private String stepId;
     private StepSequence sequence;
     private StepExecutionInfo lastExecutionInfo;
     private String hostname;
@@ -33,6 +34,7 @@ public class Step {
     private byte[] responseBody;
 
     public Step(){
+        this.stepId = UUID.randomUUID().toString();
         this.variableManager = new StepVariableManager(this);
         this.executionListeners = new ArrayList<>();
         this.requestBody = new byte[0];
@@ -42,13 +44,18 @@ public class Step {
         this.isSSL = true;
     }
 
+    public String getStepId() { return stepId; }
+    public void setStepId(String stepId) { this.stepId = stepId; }
+
     public Step(StepSequence sequence, String title){
         this();
         this.sequence = sequence;
         if(title != null) {
             this.title = title;
         }else{
-            this.title = "Step " + (sequence.getSteps().size()+1);
+            int postValIdx = sequence.resolvePostValidationStepIndex();
+            int insertPos = (postValIdx >= 0) ? postValIdx : sequence.getSteps().size();
+            this.title = "Step " + (insertPos + 1);
         }
     }
 

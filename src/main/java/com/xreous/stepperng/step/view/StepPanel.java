@@ -85,7 +85,7 @@ public class StepPanel extends JPanel implements StepVariableListener {
                 requestEditor.uiComponent(), preExecVariablePanel);
         requestSplitPane.setResizeWeight(0.8);
 
-        VariablePanel postExecVariablePanel = new PostExecVariablePanel(step.getVariableManager(), step);
+        VariablePanel postExecVariablePanel = new PostExecVariablePanel(step.getVariableManager(), step, responseEditor);
         JSplitPane responseSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 responseWrapper, postExecVariablePanel);
         responseSplitPane.setResizeWeight(0.8);
@@ -118,7 +118,7 @@ public class StepPanel extends JPanel implements StepVariableListener {
         JButton executeStepButton = new JButton("Execute Step");
         executeStepButton.setMargin(new Insets(7,7,7,7));
         executeStepButton.addActionListener(actionEvent -> {
-            new Thread(() -> {
+            Thread t = new Thread(() -> {
                 executeStepButton.setEnabled(false);
                 try {
                     byte[] currentRequest = getRequestEditor().getMessage();
@@ -138,7 +138,10 @@ public class StepPanel extends JPanel implements StepVariableListener {
                 }finally {
                     executeStepButton.setEnabled(true);
                 }
-            }).start();
+            });
+            t.setDaemon(true);
+            t.setName("Stepper-NG-StepExec");
+            t.start();
         });
 
         JButton editTargetButton = new JButton("Edit");

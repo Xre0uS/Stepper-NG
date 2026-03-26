@@ -6,7 +6,7 @@ import com.xreous.stepperng.step.Step;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Vector;
+import java.util.List;
 
 public class StepConditionPanel extends JPanel {
 
@@ -52,8 +52,9 @@ public class StepConditionPanel extends JPanel {
         actionCombo.setSelectedItem(cond.getAction());
 
         gotoCombo = new JComboBox<>();
+        gotoCombo.setRenderer(new StepIdHidingRenderer());
         refreshStepCombo(gotoCombo);
-        selectStepInCombo(gotoCombo, cond.getGotoTarget());
+        selectStepInComboById(gotoCombo, cond.getGotoTarget());
 
         retrySpinner = new JSpinner(new SpinnerNumberModel(cond.getRetryCount(), 0, 20, 1));
         delaySpinner = new JSpinner(new SpinnerNumberModel((int) cond.getRetryDelayMs(), 0, 30000, 100));
@@ -62,31 +63,26 @@ public class StepConditionPanel extends JPanel {
         elseActionCombo.setSelectedItem(cond.getElseAction());
 
         elseGotoCombo = new JComboBox<>();
+        elseGotoCombo.setRenderer(new StepIdHidingRenderer());
         refreshStepCombo(elseGotoCombo);
-        selectStepInCombo(elseGotoCombo, cond.getElseGotoTarget());
+        selectStepInComboById(elseGotoCombo, cond.getElseGotoTarget());
 
         Runnable applyAndUpdate = () -> {
             if (updating) return;
             updateFieldVisibility();
-            String gotoTarget = "";
-            if (gotoCombo.getSelectedItem() != null && gotoCombo.getSelectedIndex() > 0) {
-                gotoTarget = extractStepTitle((String) gotoCombo.getSelectedItem());
-            }
-            String elseGotoTarget = "";
-            if (elseGotoCombo.getSelectedItem() != null && elseGotoCombo.getSelectedIndex() > 0) {
-                elseGotoTarget = extractStepTitle((String) elseGotoCombo.getSelectedItem());
-            }
+            String gotoTarget = extractStepId((String) gotoCombo.getSelectedItem());
+            String elseGotoTarget = extractStepId((String) elseGotoCombo.getSelectedItem());
             StepCondition c = new StepCondition(
                     (StepCondition.ConditionType) typeCombo.getSelectedItem(),
                     patternField.getText(),
                     (StepCondition.MatchMode) matchModeCombo.getSelectedItem(),
                     (ConditionFailAction) actionCombo.getSelectedItem(),
-                    gotoTarget,
+                    gotoTarget != null ? gotoTarget : "",
                     (int) retrySpinner.getValue(),
                     (long) (int) delaySpinner.getValue()
             );
             c.setElseAction((ConditionFailAction) elseActionCombo.getSelectedItem());
-            c.setElseGotoTarget(elseGotoTarget);
+            c.setElseGotoTarget(elseGotoTarget != null ? elseGotoTarget : "");
             this.step.setCondition(c);
             if (this.step.getSequence() != null) this.step.getSequence().stepModified(this.step);
         };
@@ -130,7 +126,7 @@ public class StepConditionPanel extends JPanel {
         contentPanel.add(elseActionCombo);
         contentPanel.add(elseGotoCombo);
 
-        validationHint = new JLabel("  (validation step — action ignored)");
+        validationHint = new JLabel("  (validation step - action ignored)");
         validationHint.setFont(validationHint.getFont().deriveFont(Font.ITALIC));
         validationHint.setForeground(UIManager.getColor("Label.disabledForeground"));
         validationHint.setVisible(false);
@@ -164,14 +160,24 @@ public class StepConditionPanel extends JPanel {
 
     private boolean isValidationStep() {
         if (step.getSequence() == null) return false;
-        Integer valIdx = step.getSequence().getValidationStepIndex();
-        if (valIdx == null || valIdx < 0) return false;
-        Vector<Step> steps = step.getSequence().getSteps();
-        return valIdx < steps.size() && steps.get(valIdx) == step;
+        String valId = step.getSequence().getValidationStepId();
+        if (valId != null && step.getStepId().equals(valId)) return true;
+        return isPostValidationStep();
+    }
+
+    private boolean isPostValidationStep() {
+        if (step.getSequence() == null) return false;
+        String postValId = step.getSequence().getPostValidationStepId();
+        return postValId != null && step.getStepId().equals(postValId);
     }
 
     private void updateValidationStepState() {
         boolean isVal = isValidationStep();
+        if (isVal) {
+            validationHint.setText(isPostValidationStep()
+                    ? "  (post-validation step - action ignored)"
+                    : "  (pre-validation step - action ignored)");
+        }
         validationHint.setVisible(isVal);
         actionCombo.setEnabled(!isVal);
         gotoCombo.setEnabled(!isVal);
@@ -191,8 +197,11 @@ public class StepConditionPanel extends JPanel {
     }
 
     public void refreshStepCombos() {
-        refreshStepCombo(gotoCombo);
-        refreshStepCombo(elseGotoCombo);
+        StepCondition cond = step.getCondition();
+        String currentGotoId = cond != null ? cond.getGotoTarget() : "";
+        String currentElseGotoId = cond != null ? cond.getElseGotoTarget() : "";
+        refreshStepCombo(gotoCombo, currentGotoId);
+        refreshStepCombo(elseGotoCombo, currentElseGotoId);
     }
 
     private void updateFieldVisibility() {
@@ -200,7 +209,6 @@ public class StepConditionPanel extends JPanel {
         patternField.setVisible(!isAlways);
         matchModeCombo.setVisible(!isAlways);
 
-        // Retry is meaningless for "Always" — condition always triggers on the first attempt
         retryLabel.setVisible(!isAlways);
         retrySpinner.setVisible(!isAlways);
 
@@ -213,10 +221,8 @@ public class StepConditionPanel extends JPanel {
         delaySpinner.setVisible(showDelay);
         msLabel.setVisible(showDelay);
 
-        // For "Always", show "→" instead of ", then" since the action always fires unconditionally
         thenLabel.setText(isAlways ? "→" : ", then");
 
-        // Else action is visible when the condition is not "Always" (since Always always triggers)
         boolean showElse = !isAlways;
         elseLabel.setVisible(showElse);
         elseActionCombo.setVisible(showElse);
@@ -227,43 +233,83 @@ public class StepConditionPanel extends JPanel {
         contentPanel.repaint();
     }
 
-    private void refreshStepCombo(JComboBox<String> combo) {
+    private static final String ID_PREFIX = " [";
+    private static final String ID_SUFFIX = "]";
+
+    private void refreshStepCombo(JComboBox<String> combo, String selectedStepId) {
         boolean wasUpdating = updating;
         updating = true;
-        String prev = combo.getSelectedItem() != null ? (String) combo.getSelectedItem() : "";
         combo.removeAllItems();
         combo.addItem("(Select step)");
         if (step.getSequence() != null) {
-            Vector<Step> steps = step.getSequence().getSteps();
+            List<Step> steps = step.getSequence().getSteps();
             for (int i = 0; i < steps.size(); i++) {
                 Step s = steps.get(i);
                 if (s == step) continue;
-                combo.addItem("Step " + (i + 1) + ": " + s.getTitle());
+                combo.addItem("Step " + (i + 1) + ": " + s.getTitle() + ID_PREFIX + s.getStepId() + ID_SUFFIX);
             }
         }
-        for (int i = 0; i < combo.getItemCount(); i++) {
-            if (combo.getItemAt(i).equals(prev)) {
-                combo.setSelectedIndex(i);
-                break;
-            }
-        }
+        selectStepInComboById(combo, selectedStepId);
         updating = wasUpdating;
     }
 
-    private void selectStepInCombo(JComboBox<String> combo, String target) {
-        if (target == null || target.isEmpty()) return;
+    /** For backward compat: also accept refreshStepCombo without an explicit ID (uses condition's stored ID) */
+    private void refreshStepCombo(JComboBox<String> combo) {
+        StepCondition cond = step.getCondition();
+        String id = "";
+        if (cond != null) {
+            id = (combo == gotoCombo) ? cond.getGotoTarget() : cond.getElseGotoTarget();
+        }
+        refreshStepCombo(combo, id);
+    }
+
+    private void selectStepInComboById(JComboBox<String> combo, String stepId) {
+        if (stepId == null || stepId.isEmpty()) return;
         for (int i = 1; i < combo.getItemCount(); i++) {
-            if (extractStepTitle(combo.getItemAt(i)).equalsIgnoreCase(target)) {
+            String itemId = extractStepId(combo.getItemAt(i));
+            if (itemId != null && itemId.equals(stepId)) {
+                combo.setSelectedIndex(i);
+                return;
+            }
+        }
+        for (int i = 1; i < combo.getItemCount(); i++) {
+            String itemTitle = extractStepTitle(combo.getItemAt(i));
+            if (itemTitle.equalsIgnoreCase(stepId)) {
                 combo.setSelectedIndex(i);
                 return;
             }
         }
     }
 
+    private String extractStepId(String comboItem) {
+        if (comboItem == null) return null;
+        int start = comboItem.lastIndexOf(ID_PREFIX);
+        int end = comboItem.lastIndexOf(ID_SUFFIX);
+        if (start >= 0 && end > start) {
+            return comboItem.substring(start + ID_PREFIX.length(), end);
+        }
+        return null;
+    }
+
     private String extractStepTitle(String comboItem) {
         if (comboItem == null) return "";
-        int colonIdx = comboItem.indexOf(": ");
-        return colonIdx >= 0 ? comboItem.substring(colonIdx + 2) : comboItem;
+        int idStart = comboItem.lastIndexOf(ID_PREFIX);
+        String withoutId = idStart >= 0 ? comboItem.substring(0, idStart) : comboItem;
+        int colonIdx = withoutId.indexOf(": ");
+        return colonIdx >= 0 ? withoutId.substring(colonIdx + 2).trim() : withoutId.trim();
+    }
+
+    private class StepIdHidingRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                                                      int index, boolean isSelected, boolean cellHasFocus) {
+            String display = value != null ? value.toString() : "";
+            int idStart = display.lastIndexOf(ID_PREFIX);
+            if (idStart >= 0) {
+                display = display.substring(0, idStart);
+            }
+            return super.getListCellRendererComponent(list, display, index, isSelected, cellHasFocus);
+        }
     }
 }
 

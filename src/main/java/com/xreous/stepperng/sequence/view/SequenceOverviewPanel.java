@@ -30,13 +30,17 @@ import java.util.stream.Collectors;
 
 public class SequenceOverviewPanel extends JPanel {
 
+    private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm:ss");
+
     private final StepSequence stepSequence;
     private final OverviewTableModel tableModel;
     private final JTable overviewTable;
     private final JLabel validationLabel;
+    private final JButton disableButton;
     private final PublishedVarsTableModel publishedModel;
     private final JTable publishedTable;
     private final JLabel conflictLabel;
+    private volatile boolean refreshPending = false;
 
     public SequenceOverviewPanel(StepSequence stepSequence) {
         super(new BorderLayout());
@@ -47,7 +51,17 @@ public class SequenceOverviewPanel extends JPanel {
         JLabel titleLabel = new JLabel(stepSequence.getTitle());
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         headerPanel.add(titleLabel);
-        headerPanel.add(Box.createHorizontalStrut(20));
+        headerPanel.add(Box.createHorizontalStrut(10));
+        disableButton = new JButton(stepSequence.isDisabled() ? "Enable Sequence" : "Disable Sequence");
+        disableButton.addActionListener(e -> {
+            stepSequence.setDisabled(!stepSequence.isDisabled());
+            updateDisableButton();
+            if (!stepSequence.getSteps().isEmpty()) {
+                stepSequence.stepModified(stepSequence.getSteps().get(0));
+            }
+        });
+        headerPanel.add(disableButton);
+        headerPanel.add(Box.createHorizontalStrut(10));
         validationLabel = new JLabel();
         updateValidationLabel();
         headerPanel.add(validationLabel);
@@ -131,6 +145,14 @@ public class SequenceOverviewPanel extends JPanel {
 
         refresh();
         SwingUtilities.invokeLater(() -> { packTableColumns(overviewTable); packTableColumns(publishedTable); });
+
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0
+                    && isShowing() && refreshPending) {
+                refreshPending = false;
+                doRefresh();
+            }
+        });
     }
 
     private void attachVariableListener(Step step) {
@@ -228,7 +250,16 @@ public class SequenceOverviewPanel extends JPanel {
     }
 
     public void refresh() {
+        if (!isShowing()) {
+            refreshPending = true;
+            return;
+        }
+        doRefresh();
+    }
+
+    private void doRefresh() {
         updateValidationLabel();
+        updateDisableButton();
         tableModel.fireTableDataChanged();
         publishedModel.reload();
         publishedModel.fireTableDataChanged();
@@ -284,17 +315,30 @@ public class SequenceOverviewPanel extends JPanel {
     }
 
     private void updateValidationLabel() {
-        Integer valIdx = stepSequence.getValidationStepIndex();
-        if (valIdx != null && valIdx >= 0 && valIdx < stepSequence.getSteps().size()) {
+        StringBuilder sb = new StringBuilder();
+        int valIdx = stepSequence.resolveValidationStepIndex();
+        if (valIdx >= 0 && valIdx < stepSequence.getSteps().size()) {
             Step valStep = stepSequence.getSteps().get(valIdx);
-            validationLabel.setText("Validation Step: " + (valIdx + 1) + " (" + valStep.getTitle()
-                    + ") \u2014 triggers = session valid, skip rest");
+            sb.append("Pre-Validation: Step ").append(valIdx + 1)
+              .append(" (").append(valStep.getTitle()).append(")");
         } else {
-            validationLabel.setText("Validation Step: None");
+            sb.append("Pre-Validation: None");
         }
+        int postValIdx = stepSequence.resolvePostValidationStepIndex();
+        if (postValIdx >= 0 && postValIdx < stepSequence.getSteps().size()) {
+            Step postValStep = stepSequence.getSteps().get(postValIdx);
+            sb.append("  |  Post-Validation: Step ").append(postValIdx + 1)
+              .append(" (").append(postValStep.getTitle()).append(")");
+        } else {
+            sb.append("  |  Post-Validation: None");
+        }
+        validationLabel.setText(sb.toString());
     }
 
-    // ====== Published Variables Table ======
+    private void updateDisableButton() {
+        disableButton.setText(stepSequence.isDisabled() ? "Enable Sequence" : "Disable Sequence");
+    }
+
 
     private class PublishedVarsTableModel extends AbstractTableModel {
         private final String[] COLS = {"Published", "Variable", "Step", "Type / Regex", "Value", "Updated"};
@@ -336,11 +380,11 @@ public class SequenceOverviewPanel extends JPanel {
                 case 3 -> r.regex;
                 case 4 -> {
                     String v = r.variable.getValue();
-                    yield (v == null || v.isEmpty()) ? "\u2014" : v;
+                    yield (v == null || v.isEmpty()) ? "-" : v;
                 }
                 case 5 -> {
                     long ts = r.variable.getLastUpdated();
-                    yield ts <= 0 ? "\u2014" : new SimpleDateFormat("HH:mm:ss").format(new Date(ts));
+                    yield ts <= 0 ? "-" : TIME_FORMAT.format(new Date(ts));
                 }
                 default -> "";
             };
@@ -412,7 +456,6 @@ public class SequenceOverviewPanel extends JPanel {
         }
     }
 
-    // ====== Steps Overview Table ======
 
     private class OverviewTableModel extends AbstractTableModel {
         private final String[] COLUMNS = {"#", "Status", "Title", "Target", "Condition", "Action", "Variables", "Last Result"};
@@ -429,7 +472,7 @@ public class SequenceOverviewPanel extends JPanel {
                 case 1 -> step.isEnabled() ? "Enabled" : "Disabled";
                 case 2 -> step.getTitle();
                 case 3 -> step.getTargetString();
-                case 4 -> getConditionSummary(step);
+                case 4 -> getConditionSummary(step, row);
                 case 5 -> getActionSummary(step, row);
                 case 6 -> getVariableSummary(step);
                 case 7 -> getLastResultSummary(step);
@@ -437,28 +480,43 @@ public class SequenceOverviewPanel extends JPanel {
             };
         }
 
-        private String getConditionSummary(Step step) {
+        private String getConditionSummary(Step step, int row) {
             StepCondition cond = step.getCondition();
-            if (cond == null || !cond.isConfigured()) return "\u2014";
+            if (cond == null || !cond.isConfigured()) return "-";
+
+            boolean isPreVal = step.getStepId().equals(stepSequence.getValidationStepId());
+            boolean isPostVal = step.getStepId().equals(stepSequence.getPostValidationStepId());
+
             if (cond.getType() == StepCondition.ConditionType.ALWAYS) return "Always";
             String what = cond.getType() == StepCondition.ConditionType.STATUS_CODE ? "status" : "response";
             String pattern = cond.getPattern();
             if (pattern.length() > 25) pattern = pattern.substring(0, 25) + "\u2026";
             String mode = cond.getMatchMode() == StepCondition.MatchMode.MATCHES ? "matches" : "doesn't match";
-            return "If " + what + " " + mode + " /" + pattern + "/";
+            String base = "If " + what + " " + mode + " /" + pattern + "/";
+
+            if (isPreVal) {
+                return base + " → session valid, skip rest";
+            } else if (isPostVal) {
+                return base + " → session recovered";
+            }
+            return base;
         }
 
         private String getActionSummary(Step step, int row) {
             StepCondition cond = step.getCondition();
-            Integer valIdx = stepSequence.getValidationStepIndex();
-            if (valIdx != null && valIdx == row) {
-                return "Validation step - action ignored";
+            if (step.getStepId().equals(stepSequence.getValidationStepId())) {
+                return "Pre-validation step - action ignored";
             }
-            if (cond == null || !cond.isConfigured()) return "—";
+            if (step.getStepId().equals(stepSequence.getPostValidationStepId())) {
+                return "Post-validation step - action ignored";
+            }
+            if (cond == null || !cond.isConfigured()) return "-";
+            java.util.function.Function<String, String> resolver = stepSequence::resolveStepIdToDisplay;
             StringBuilder sb = new StringBuilder(cond.getAction().toString());
             if (cond.getAction() == com.xreous.stepperng.condition.ConditionFailAction.GOTO_STEP
                     && cond.getGotoTarget() != null && !cond.getGotoTarget().isEmpty()) {
-                sb.append(" → ").append(cond.getGotoTarget());
+                String display = resolver.apply(cond.getGotoTarget());
+                sb.append(" → ").append(display != null ? display : cond.getGotoTarget());
             }
             if (cond.getRetryCount() > 0 && cond.getType() != StepCondition.ConditionType.ALWAYS) {
                 sb.append(", retry ").append(cond.getRetryCount()).append("x");
@@ -470,7 +528,8 @@ public class SequenceOverviewPanel extends JPanel {
                 sb.append(", else ").append(elseAct);
                 if (elseAct == com.xreous.stepperng.condition.ConditionFailAction.GOTO_STEP
                         && cond.getElseGotoTarget() != null && !cond.getElseGotoTarget().isEmpty()) {
-                    sb.append(" → ").append(cond.getElseGotoTarget());
+                    String display = resolver.apply(cond.getElseGotoTarget());
+                    sb.append(" → ").append(display != null ? display : cond.getElseGotoTarget());
                 }
             }
             return sb.toString();
@@ -478,7 +537,7 @@ public class SequenceOverviewPanel extends JPanel {
 
         private String getVariableSummary(Step step) {
             List<StepVariable> vars = step.getVariableManager().getVariables();
-            if (vars.isEmpty()) return "\u2014";
+            if (vars.isEmpty()) return "-";
             List<String> preVars = vars.stream()
                     .filter(v -> v instanceof PreExecutionStepVariable)
                     .map(v -> v.getIdentifier() + (v.isPublished() ? " \u2726" : ""))
@@ -498,10 +557,10 @@ public class SequenceOverviewPanel extends JPanel {
 
         private String getLastResultSummary(Step step) {
             String result = step.getLastConditionResult();
-            if (result == null) return "\u2014";
+            if (result == null) return "-";
             long ts = step.getLastExecutionTime();
             if (ts > 0) {
-                String time = new SimpleDateFormat("HH:mm:ss").format(new Date(ts));
+                String time = TIME_FORMAT.format(new Date(ts));
                 return "[" + time + "] " + result;
             }
             return result;
@@ -522,8 +581,8 @@ public class SequenceOverviewPanel extends JPanel {
                 } else {
                     c.setForeground(table.getForeground());
                 }
-                Integer valIdx = stepSequence.getValidationStepIndex();
-                if (valIdx != null && valIdx == row) {
+                if (step.getStepId().equals(stepSequence.getValidationStepId())
+                        || step.getStepId().equals(stepSequence.getPostValidationStepId())) {
                     c.setBackground(new Color(70, 130, 180, 30));
                 } else {
                     c.setBackground(table.getBackground());

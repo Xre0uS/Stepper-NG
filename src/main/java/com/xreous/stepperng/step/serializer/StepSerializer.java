@@ -17,6 +17,9 @@ public class StepSerializer implements JsonSerializer<Step>, JsonDeserializer<St
         JsonObject jsonObject = json.getAsJsonObject();
         Step step = new Step();
         try {
+            if (jsonObject.has("stepId") && !jsonObject.get("stepId").isJsonNull()) {
+                step.setStepId(jsonObject.get("stepId").getAsString());
+            }
             step.setTitle(jsonObject.has("title") ? jsonObject.get("title").getAsString() : "Unnamed Step");
             step.setHostname(jsonObject.has("host") && !jsonObject.get("host").isJsonNull() ? jsonObject.get("host").getAsString() : "");
             step.setPort(jsonObject.has("port") && !jsonObject.get("port").isJsonNull() ? jsonObject.get("port").getAsInt() : 443);
@@ -66,6 +69,7 @@ public class StepSerializer implements JsonSerializer<Step>, JsonDeserializer<St
     @Override
     public JsonElement serialize(Step src, Type typeOfSrc, JsonSerializationContext context) {
         JsonObject json = new JsonObject();
+        json.addProperty("stepId", src.getStepId());
         json.addProperty("title", src.getTitle());
         json.addProperty("host", src.getHostname());
         json.addProperty("port", src.getPort());

@@ -6,6 +6,7 @@ import com.coreyd97.BurpExtenderUtilities.PanelBuilder;
 import com.coreyd97.BurpExtenderUtilities.Preferences;
 import com.xreous.stepperng.Globals;
 import com.xreous.stepperng.Stepper;
+import com.xreous.stepperng.AutoBackupManager;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.sequencemanager.SequenceManager;
 import com.xreous.stepperng.variable.DynamicGlobalVariable;
@@ -18,7 +19,6 @@ import com.google.gson.reflect.TypeToken;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -33,7 +33,39 @@ public class OptionsPanel extends JPanel {
         this.sequenceManager = sequenceManager;
         this.preferences = Stepper.getPreferences();
 
-        buildPanel();
+        if (this.preferences != null) {
+            buildPanel();
+        } else {
+            buildDegradedPanel();
+        }
+    }
+
+    private void buildDegradedPanel() {
+        PanelBuilder panelBuilder = new PanelBuilder();
+
+        ComponentGroup warningGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Status");
+        JTextArea warningText = new JTextArea(
+                "Stepper-NG is running in degraded mode because the Burp project file is corrupted.\n\n"
+                + "Preferences cannot be loaded or saved. Use the Import/Export buttons below to\n"
+                + "recover or back up your sequences and variables.");
+        warningText.setEditable(false);
+        warningText.setLineWrap(true);
+        warningText.setWrapStyleWord(true);
+        warningText.setOpaque(false);
+        warningText.setForeground(new Color(200, 80, 80));
+        warningText.setFont(warningText.getFont().deriveFont(Font.BOLD));
+        warningText.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
+        warningGroup.add(warningText);
+
+        ComponentGroup importExportGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Import / Export");
+        addImportExportButtons(importExportGroup);
+
+        panelBuilder.setComponentGrid(new JComponent[][]{
+                new JComponent[]{warningGroup},
+                new JComponent[]{importExportGroup}
+        });
+        panelBuilder.setAlignment(Alignment.TOPMIDDLE);
+        this.add(panelBuilder.build());
     }
 
     private void buildPanel() {
@@ -74,94 +106,9 @@ public class OptionsPanel extends JPanel {
         GridBagConstraints constraints = toolEnabledGroup.generateNextConstraints(true);
         toolEnabledGroup.add(Box.createHorizontalStrut(175), constraints);
 
-        ComponentGroup importGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Import Sequences");
-        importGroup.add(new JButton(new AbstractAction("Import Sequences From File") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                fileChooser.setMultiSelectionEnabled(false);
-                int result = fileChooser.showOpenDialog(OptionsPanel.this);
-                if (result == JFileChooser.APPROVE_OPTION) {
-                    File openingFile = fileChooser.getSelectedFile();
-                    byte[] fileContent;
-                    try {
-                        fileContent = Files.readAllBytes(openingFile.toPath());
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(OptionsPanel.this, "Unable to open file for reading: " + ex.getMessage(),
-                                "Unable to Open File", JOptionPane.ERROR_MESSAGE);
-                        return;
-                    }
-
-                    importSequencesFromString(new String(fileContent), true);
-                }
-            }
-        }));
-
-        importGroup.add(new JButton(new AbstractAction("Import Sequences As String") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                JTextArea inputArea = new JTextArea();
-                inputArea.setWrapStyleWord(true);
-                inputArea.setLineWrap(true);
-                inputArea.setEditable(true);
-                JScrollPane scrollPane = new JScrollPane(inputArea);
-                scrollPane.setPreferredSize(new Dimension(500, 600));
-                scrollPane.setMaximumSize(new Dimension(500, Integer.MAX_VALUE));
-                scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-                int result = JOptionPane.showConfirmDialog(OptionsPanel.this, scrollPane,
-                        "Import Sequences", JOptionPane.OK_CANCEL_OPTION);
-                if(result == JOptionPane.OK_OPTION){
-                    importSequencesFromString(inputArea.getText(), true);
-                }
-            }
-        }));
-
-        ComponentGroup exportGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Export Sequences");
-        exportGroup.add(new JButton(new AbstractAction("Export Sequences To File") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String sequencesJson = exportSequencesAsString(sequenceManager.getSequences(), true);
-                if(sequencesJson == null || sequencesJson.length() == 0) return;
-
-                JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setMultiSelectionEnabled(false);
-                fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                int result = fileChooser.showSaveDialog(OptionsPanel.this);
-                if(result == JFileChooser.APPROVE_OPTION){
-                    File saveFile = fileChooser.getSelectedFile();
-                    try {
-                        Files.write(saveFile.toPath(), sequencesJson.getBytes());
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(OptionsPanel.this, "Unable to write to file: " + ex.getMessage(),
-                                "Unable to Save File", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            }
-        }));
-
-        exportGroup.add(new JButton(new AbstractAction("Export Sequences As String") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String sequencesJson = exportSequencesAsString(sequenceManager.getSequences(), true);
-                if(sequencesJson == null || sequencesJson.length() == 0) return;
-                JTextArea selectionArea = new JTextArea();
-                selectionArea.setWrapStyleWord(true);
-                selectionArea.setLineWrap(true);
-                selectionArea.setEditable(false);
-                selectionArea.setText(sequencesJson);
-                JScrollPane scrollPane = new JScrollPane(selectionArea);
-                scrollPane.setPreferredSize(new Dimension(500, 600));
-                scrollPane.setMaximumSize(new Dimension(500, Integer.MAX_VALUE));
-                scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-                JOptionPane.showMessageDialog(OptionsPanel.this, scrollPane,
-                        "Exported Sequences", JOptionPane.PLAIN_MESSAGE);
-            }
-        }));
-
         PanelBuilder panelBuilder = new PanelBuilder();
 
-        ComponentGroup sessionGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Published Variable Auto-Execution");
+        ComponentGroup sessionGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Session Handling");
 
         JPanel sessionRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 5, 2));
         sessionRow.add(new JLabel("Validate every N requests:"));
@@ -173,13 +120,25 @@ public class OptionsPanel extends JPanel {
         sessionRow.add(new JLabel("(1 = every request)"));
         sessionGroup.add(sessionRow);
 
+        JCheckBox pauseOnFailCheckbox = sessionGroup.addPreferenceComponent(preferences,
+                Globals.PREF_PAUSE_ON_POST_VALIDATION_FAIL,
+                "Pause task execution engine on post-validation failure");
+        pauseOnFailCheckbox.setToolTipText(
+                "When enabled, the task engine is automatically paused after consecutive post-validation failures. " +
+                "When disabled, an alert is shown but tasks keep running.");
+
+        JCheckBox holdRequestsCheckbox = sessionGroup.addPreferenceComponent(preferences,
+                Globals.PREF_HOLD_REQUESTS_DURING_EXECUTION,
+                "Hold requests while sequence is executing");
+        holdRequestsCheckbox.setToolTipText(
+                "When a sequence is already running (e.g. refreshing a token), hold other worker threads "
+                + "until it finishes so they receive the updated variable values instead of stale ones.");
+
         JTextArea sessionHelp = new JTextArea(
-                "When a request contains $VAR: references to published variables, "
-                + "Stepper-NG auto-executes the owning sequence to refresh them. "
-                + "Use Burp's session handling rules to inject $VAR:seq:name$ into "
-                + "headers/cookies. The validation step (if configured) runs first — "
-                + "if the session is still valid, the rest of the sequence is skipped. "
-                + "Set N > 1 to reduce overhead in scanners/intruder.");
+                "Requests containing $VAR: references auto-execute the owning sequence. "
+                + "Set N > 1 to skip redundant re-executions during scans/intruder runs. "
+                + "Enable 'Hold requests' to prevent concurrent workers from using stale tokens "
+                + "while a sequence is mid-execution.");
         sessionHelp.setEditable(false);
         sessionHelp.setLineWrap(true);
         sessionHelp.setWrapStyleWord(true);
@@ -189,18 +148,30 @@ public class OptionsPanel extends JPanel {
         sessionHelp.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         sessionGroup.add(sessionHelp);
 
-        ComponentGroup importGlobalsGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Import Global Variables");
-        importGlobalsGroup.add(new JButton(new AbstractAction("Import From File") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                fileChooser.setMultiSelectionEnabled(false);
-                int result = fileChooser.showOpenDialog(OptionsPanel.this);
-                if (result == JFileChooser.APPROVE_OPTION) {
+        ComponentGroup importExportGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Import / Export");
+        addImportExportButtons(importExportGroup);
+
+        ComponentGroup backupGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Auto-Backup");
+        addAutoBackupControls(backupGroup);
+
+        panelBuilder.setComponentGrid(new JComponent[][]{new JComponent[]{toolEnabledGroup, importExportGroup},
+                                                                new JComponent[]{configGroup, backupGroup},
+                                                                new JComponent[]{sessionGroup, backupGroup}});
+        panelBuilder.setAlignment(Alignment.TOPMIDDLE);
+        this.add(panelBuilder.build());
+    }
+
+    private void addImportExportButtons(ComponentGroup group) {
+        JButton importButton = new JButton("Import...");
+        JPopupMenu importMenu = new JPopupMenu();
+        importMenu.add(new JMenuItem(new AbstractAction("From File") {
+            @Override public void actionPerformed(ActionEvent e) {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+                fc.setMultiSelectionEnabled(false);
+                if (fc.showOpenDialog(OptionsPanel.this) == JFileChooser.APPROVE_OPTION) {
                     try {
-                        String content = new String(Files.readAllBytes(fileChooser.getSelectedFile().toPath()));
-                        importGlobalVariables(content);
+                        importUnified(new String(Files.readAllBytes(fc.getSelectedFile().toPath())));
                     } catch (IOException ex) {
                         JOptionPane.showMessageDialog(OptionsPanel.this, "Unable to open file: " + ex.getMessage(),
                                 "Import Failed", JOptionPane.ERROR_MESSAGE);
@@ -208,36 +179,34 @@ public class OptionsPanel extends JPanel {
                 }
             }
         }));
-        importGlobalsGroup.add(new JButton(new AbstractAction("Import As String") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
+        importMenu.add(new JMenuItem(new AbstractAction("From String") {
+            @Override public void actionPerformed(ActionEvent e) {
                 JTextArea inputArea = new JTextArea();
                 inputArea.setWrapStyleWord(true);
                 inputArea.setLineWrap(true);
-                inputArea.setEditable(true);
-                JScrollPane scrollPane = new JScrollPane(inputArea);
-                scrollPane.setPreferredSize(new Dimension(500, 400));
-                scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-                int result = JOptionPane.showConfirmDialog(OptionsPanel.this, scrollPane,
-                        "Import Global Variables", JOptionPane.OK_CANCEL_OPTION);
-                if (result == JOptionPane.OK_OPTION) {
-                    importGlobalVariables(inputArea.getText());
+                JScrollPane sp = new JScrollPane(inputArea);
+                sp.setPreferredSize(new Dimension(500, 600));
+                sp.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+                if (JOptionPane.showConfirmDialog(OptionsPanel.this, sp,
+                        "Import", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                    importUnified(inputArea.getText());
                 }
             }
         }));
+        importButton.addActionListener(e -> importMenu.show(importButton, 0, importButton.getHeight()));
+        group.add(importButton);
 
-        ComponentGroup exportGlobalsGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Export Global Variables");
-        exportGlobalsGroup.add(new JButton(new AbstractAction("Export To File") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String json = exportGlobalVariables();
+        JButton exportButton = new JButton("Export...");
+        JPopupMenu exportMenu = new JPopupMenu();
+        exportMenu.add(new JMenuItem(new AbstractAction("To File") {
+            @Override public void actionPerformed(ActionEvent e) {
+                String json = showExportDialog();
                 if (json == null || json.isEmpty()) return;
-                JFileChooser fileChooser = new JFileChooser();
-                fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                int result = fileChooser.showSaveDialog(OptionsPanel.this);
-                if (result == JFileChooser.APPROVE_OPTION) {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+                if (fc.showSaveDialog(OptionsPanel.this) == JFileChooser.APPROVE_OPTION) {
                     try {
-                        Files.write(fileChooser.getSelectedFile().toPath(), json.getBytes());
+                        Files.write(fc.getSelectedFile().toPath(), json.getBytes());
                     } catch (IOException ex) {
                         JOptionPane.showMessageDialog(OptionsPanel.this, "Unable to write file: " + ex.getMessage(),
                                 "Export Failed", JOptionPane.ERROR_MESSAGE);
@@ -245,128 +214,264 @@ public class OptionsPanel extends JPanel {
                 }
             }
         }));
-        exportGlobalsGroup.add(new JButton(new AbstractAction("Export As String") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String json = exportGlobalVariables();
+        exportMenu.add(new JMenuItem(new AbstractAction("As String") {
+            @Override public void actionPerformed(ActionEvent e) {
+                String json = showExportDialog();
                 if (json == null || json.isEmpty()) return;
                 JTextArea area = new JTextArea(json);
                 area.setWrapStyleWord(true);
                 area.setLineWrap(true);
                 area.setEditable(false);
-                JScrollPane scrollPane = new JScrollPane(area);
-                scrollPane.setPreferredSize(new Dimension(500, 400));
-                scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-                JOptionPane.showMessageDialog(OptionsPanel.this, scrollPane,
-                        "Exported Global Variables", JOptionPane.PLAIN_MESSAGE);
+                JScrollPane sp = new JScrollPane(area);
+                sp.setPreferredSize(new Dimension(500, 600));
+                sp.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+                JOptionPane.showMessageDialog(OptionsPanel.this, sp, "Exported Data", JOptionPane.PLAIN_MESSAGE);
             }
         }));
-
-        panelBuilder.setComponentGrid(new JComponent[][]{new JComponent[]{toolEnabledGroup, importGroup},
-                                                                new JComponent[]{toolEnabledGroup, exportGroup},
-                                                                new JComponent[]{configGroup, importGlobalsGroup},
-                                                                new JComponent[]{sessionGroup, exportGlobalsGroup}});
-        panelBuilder.setAlignment(Alignment.TOPMIDDLE);
-        this.add(panelBuilder.build());
+        exportButton.addActionListener(e -> exportMenu.show(exportButton, 0, exportButton.getHeight()));
+        group.add(exportButton);
     }
 
-    private void importSequencesFromString(String sequencesJson, boolean displaySelectionDialog){
-        Gson gson = Stepper.getGsonProvider().getGson();
-        ArrayList<StepSequence> allSequences = null;
-        try{
-            allSequences = gson.fromJson(sequencesJson, new TypeToken<ArrayList<StepSequence>>(){}.getType());
-        }catch (Exception e){
-            Stepper.montoya.logging().logToError("Stepper-NG: Failed to parse import JSON: " + e.getMessage());
-            JOptionPane.showMessageDialog(this,
-                    "Failed to parse JSON: " + e.getMessage(),
-                    "Import Failed", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+    private void addAutoBackupControls(ComponentGroup group) {
+        JCheckBox enabledCheckbox = group.addPreferenceComponent(preferences, Globals.PREF_AUTO_BACKUP_ENABLED,
+                "Enable periodic auto-backup");
 
-        if(allSequences == null || allSequences.size() == 0){
-            JOptionPane.showMessageDialog(this, "Could not import sequences. " +
-                    "Either the JSON is malfored or no sequences could be found in the content.", "Import Failed", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        JPanel intervalRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        intervalRow.add(new JLabel("Backup every:"));
+        int currentInterval = Globals.DEFAULT_AUTO_BACKUP_INTERVAL_MINUTES;
+        try {
+            Object v = preferences.getSetting(Globals.PREF_AUTO_BACKUP_INTERVAL_MINUTES);
+            if (v instanceof Integer i && i > 0) currentInterval = i;
+        } catch (Exception ignored) {}
+        JSpinner intervalSpinner = new JSpinner(new SpinnerNumberModel(currentInterval, 1, 1440, 5));
+        intervalSpinner.addChangeListener(ce -> {
+            preferences.setSetting(Globals.PREF_AUTO_BACKUP_INTERVAL_MINUTES, (int) intervalSpinner.getValue());
+            restartBackupIfEnabled();
+        });
+        intervalRow.add(intervalSpinner);
+        intervalRow.add(new JLabel("minute(s)"));
+        group.add(intervalRow);
 
-        List<StepSequence> selectedSequences;
-        if(displaySelectionDialog){
-            SequenceSelectionDialog dialog = new SequenceSelectionDialog(
-                    (Frame) SwingUtilities.getWindowAncestor(this), "Import Sequences", allSequences);
-            selectedSequences = dialog.run();
-        }else{
-            selectedSequences = allSequences;
-        }
+        JPanel maxFilesRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        maxFilesRow.add(new JLabel("Keep last:"));
+        int currentMax = Globals.DEFAULT_AUTO_BACKUP_MAX_FILES;
+        try {
+            Object v = preferences.getSetting(Globals.PREF_AUTO_BACKUP_MAX_FILES);
+            if (v instanceof Integer i && i > 0) currentMax = i;
+        } catch (Exception ignored) {}
+        JSpinner maxSpinner = new JSpinner(new SpinnerNumberModel(currentMax, 1, 100, 1));
+        maxSpinner.addChangeListener(ce -> {
+            preferences.setSetting(Globals.PREF_AUTO_BACKUP_MAX_FILES, (int) maxSpinner.getValue());
+        });
+        maxFilesRow.add(maxSpinner);
+        maxFilesRow.add(new JLabel("backup file(s)"));
+        group.add(maxFilesRow);
 
-        for (StepSequence selectedSequence : selectedSequences) {
-            this.sequenceManager.addStepSequence(selectedSequence);
-        }
+        JPanel dirRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        dirRow.add(new JLabel("Directory:"));
+        String currentDir = "";
+        try {
+            Object v = preferences.getSetting(Globals.PREF_AUTO_BACKUP_DIR);
+            if (v instanceof String s) currentDir = s;
+        } catch (Exception ignored) {}
+        JTextField dirField = new JTextField(currentDir, 22);
+        dirField.setEditable(false);
+        dirField.setToolTipText(currentDir.isEmpty() ? "No directory selected" : currentDir);
+        dirRow.add(dirField);
 
+        JButton browseButton = new JButton("Browse...");
+        browseButton.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            String cur = dirField.getText();
+            if (cur != null && !cur.isEmpty()) {
+                fc.setCurrentDirectory(new java.io.File(cur));
+            }
+            if (fc.showOpenDialog(OptionsPanel.this) == JFileChooser.APPROVE_OPTION) {
+                String path = fc.getSelectedFile().getAbsolutePath();
+                dirField.setText(path);
+                dirField.setToolTipText(path);
+                preferences.setSetting(Globals.PREF_AUTO_BACKUP_DIR, path);
+                restartBackupIfEnabled();
+            }
+        });
+        dirRow.add(browseButton);
+        group.add(dirRow);
+
+        // Backup Now button
+        JButton backupNowButton = new JButton("Backup Now");
+        backupNowButton.addActionListener(e -> {
+            String dir = dirField.getText();
+            if (dir == null || dir.isBlank()) {
+                JOptionPane.showMessageDialog(OptionsPanel.this,
+                        "Please select a backup directory first.",
+                        "No Directory", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            AutoBackupManager mgr = Stepper.getInstance() != null
+                    ? Stepper.getInstance().getAutoBackupManager() : null;
+            if (mgr != null) {
+                String result = mgr.performBackup();
+                if (result != null) {
+                    JOptionPane.showMessageDialog(OptionsPanel.this,
+                            "Backup saved to:\n" + result,
+                            "Backup Complete", JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(OptionsPanel.this,
+                            "Backup failed. Check the extension error log for details.",
+                            "Backup Failed", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+        group.add(backupNowButton);
+
+        Runnable updateEnabled = () -> {
+            boolean on = enabledCheckbox.isSelected();
+            intervalSpinner.setEnabled(on);
+            maxSpinner.setEnabled(on);
+            browseButton.setEnabled(on);
+        };
+        updateEnabled.run();
+        enabledCheckbox.addChangeListener(ce -> {
+            updateEnabled.run();
+            restartBackupIfEnabled();
+        });
+
+        JTextArea helpText = new JTextArea(
+                "Periodically saves all sequences and global variables to a JSON file. "
+                + "Acts as a safety net against Burp project file corruption. "
+                + "Backups use the same format as manual Export and can be restored via Import.");
+        helpText.setEditable(false);
+        helpText.setLineWrap(true);
+        helpText.setWrapStyleWord(true);
+        helpText.setOpaque(false);
+        helpText.setFont(helpText.getFont().deriveFont(Font.ITALIC, helpText.getFont().getSize2D() - 1f));
+        helpText.setForeground(UIManager.getColor("Label.disabledForeground"));
+        helpText.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
+        group.add(helpText);
     }
 
-    private String exportSequencesAsString(List<StepSequence> sequences, boolean displaySelectionDialog){
-        List<StepSequence> selectedSequences;
-        if(displaySelectionDialog){
-            SequenceSelectionDialog dialog = new SequenceSelectionDialog(
-                    (Frame) SwingUtilities.getWindowAncestor(this), "Export Sequences", sequences);
-            selectedSequences = dialog.run();
-        }else{
-            selectedSequences = sequences;
+    private void restartBackupIfEnabled() {
+        AutoBackupManager mgr = Stepper.getInstance() != null
+                ? Stepper.getInstance().getAutoBackupManager() : null;
+        if (mgr != null) {
+            mgr.start();
         }
-
-        if(selectedSequences == null) return "";
-
-        Gson gson = Stepper.getGsonProvider().getGson();
-        return gson.toJson(selectedSequences, new TypeToken<ArrayList<StepSequence>>(){}.getType());
     }
 
-    private String exportGlobalVariables() {
-        DynamicGlobalVariableManager mgr = Stepper.getDynamicGlobalVariableManager();
-        if (mgr == null) return "";
+    private String showExportDialog() {
+        SequenceSelectionDialog dialog = new SequenceSelectionDialog(
+                (Frame) SwingUtilities.getWindowAncestor(this), "Export",
+                sequenceManager.getSequences(), true);
+        List<StepSequence> selected = dialog.run();
+        if (dialog.isCancelled()) return null;
+
+        boolean includeGlobals = dialog.isGlobalsSelected();
+        if ((selected == null || selected.isEmpty()) && !includeGlobals) return null;
+
         Gson gson = Stepper.getGsonProvider().getGson();
         JsonObject root = new JsonObject();
-        root.add("dynamicVariables", gson.toJsonTree(
-                new ArrayList<>(mgr.getVariables()), new TypeToken<ArrayList<DynamicGlobalVariable>>(){}.getType()));
-        root.add("staticVariables", gson.toJsonTree(
-                new ArrayList<>(mgr.getStaticVariables()), new TypeToken<ArrayList<StaticGlobalVariable>>(){}.getType()));
+
+        if (selected != null && !selected.isEmpty()) {
+            root.add("sequences", gson.toJsonTree(selected, new TypeToken<ArrayList<StepSequence>>(){}.getType()));
+        }
+
+        if (includeGlobals) {
+            DynamicGlobalVariableManager mgr = Stepper.getDynamicGlobalVariableManager();
+            if (mgr != null) {
+                List<DynamicGlobalVariable> dvars = new ArrayList<>(mgr.getVariables());
+                List<StaticGlobalVariable> svars = new ArrayList<>(mgr.getStaticVariables());
+                if (!dvars.isEmpty()) {
+                    root.add("dynamicVariables", gson.toJsonTree(dvars, new TypeToken<ArrayList<DynamicGlobalVariable>>(){}.getType()));
+                }
+                if (!svars.isEmpty()) {
+                    root.add("staticVariables", gson.toJsonTree(svars, new TypeToken<ArrayList<StaticGlobalVariable>>(){}.getType()));
+                }
+            }
+        }
+
         return gson.toJson(root);
     }
 
-    private void importGlobalVariables(String json) {
-        DynamicGlobalVariableManager mgr = Stepper.getDynamicGlobalVariableManager();
-        if (mgr == null) return;
+    private void importUnified(String json) {
+        if (json == null || json.isBlank()) {
+            JOptionPane.showMessageDialog(this, "No data to import.", "Import Failed", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        Gson gson = Stepper.getGsonProvider().getGson();
+        int seqCount = 0;
+        int globalCount = 0;
+
         try {
-            Gson gson = Stepper.getGsonProvider().getGson();
-            JsonObject root = gson.fromJson(json, JsonObject.class);
-            if (root == null) {
-                JOptionPane.showMessageDialog(this, "Invalid JSON.", "Import Failed", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            int count = 0;
-            if (root.has("dynamicVariables") && root.getAsJsonArray("dynamicVariables") != null) {
-                List<DynamicGlobalVariable> dvars = gson.fromJson(
-                        root.getAsJsonArray("dynamicVariables"),
-                        new TypeToken<ArrayList<DynamicGlobalVariable>>(){}.getType());
-                if (dvars != null) {
-                    for (DynamicGlobalVariable v : dvars) { mgr.addVariable(v); count++; }
+            json = json.trim();
+
+            // Detect format: bare array = old sequence-only format, object = unified or globals-only
+            if (json.startsWith("[")) {
+                // Legacy: bare array of sequences
+                ArrayList<StepSequence> sequences = gson.fromJson(json, new TypeToken<ArrayList<StepSequence>>(){}.getType());
+                if (sequences != null) {
+                    for (StepSequence seq : sequences) {
+                        sequenceManager.addStepSequence(seq);
+                        seqCount++;
+                    }
+                }
+            } else {
+                JsonObject root = gson.fromJson(json, JsonObject.class);
+                if (root == null) {
+                    JOptionPane.showMessageDialog(this, "Invalid JSON.", "Import Failed", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                // Import sequences
+                if (root.has("sequences") && root.get("sequences").isJsonArray()) {
+                    ArrayList<StepSequence> sequences = gson.fromJson(
+                            root.getAsJsonArray("sequences"), new TypeToken<ArrayList<StepSequence>>(){}.getType());
+                    if (sequences != null) {
+                        for (StepSequence seq : sequences) {
+                            sequenceManager.addStepSequence(seq);
+                            seqCount++;
+                        }
+                    }
+                }
+
+                // Import global variables
+                DynamicGlobalVariableManager mgr = Stepper.getDynamicGlobalVariableManager();
+                if (mgr != null) {
+                    if (root.has("dynamicVariables") && root.get("dynamicVariables").isJsonArray()) {
+                        List<DynamicGlobalVariable> dvars = gson.fromJson(
+                                root.getAsJsonArray("dynamicVariables"),
+                                new TypeToken<ArrayList<DynamicGlobalVariable>>(){}.getType());
+                        if (dvars != null) {
+                            for (DynamicGlobalVariable v : dvars) { mgr.addVariable(v); globalCount++; }
+                        }
+                    }
+                    if (root.has("staticVariables") && root.get("staticVariables").isJsonArray()) {
+                        List<StaticGlobalVariable> svars = gson.fromJson(
+                                root.getAsJsonArray("staticVariables"),
+                                new TypeToken<ArrayList<StaticGlobalVariable>>(){}.getType());
+                        if (svars != null) {
+                            for (StaticGlobalVariable v : svars) { mgr.addStaticVariable(v); globalCount++; }
+                        }
+                    }
                 }
             }
-            if (root.has("staticVariables") && root.getAsJsonArray("staticVariables") != null) {
-                List<StaticGlobalVariable> svars = gson.fromJson(
-                        root.getAsJsonArray("staticVariables"),
-                        new TypeToken<ArrayList<StaticGlobalVariable>>(){}.getType());
-                if (svars != null) {
-                    for (StaticGlobalVariable v : svars) { mgr.addStaticVariable(v); count++; }
-                }
-            }
-            JOptionPane.showMessageDialog(this, "Imported " + count + " global variable(s).",
-                    "Import Complete", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception e) {
-            Stepper.montoya.logging().logToError("Stepper-NG: Failed to import global variables: " + e.getMessage());
+            Stepper.montoya.logging().logToError("Stepper-NG: Failed to parse import JSON: " + e.getMessage());
             JOptionPane.showMessageDialog(this, "Failed to parse JSON: " + e.getMessage(),
                     "Import Failed", JOptionPane.ERROR_MESSAGE);
+            return;
         }
+
+        if (seqCount == 0 && globalCount == 0) {
+            JOptionPane.showMessageDialog(this, "No sequences or global variables found in the data.",
+                    "Import Failed", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        StringBuilder msg = new StringBuilder("Imported:");
+        if (seqCount > 0) msg.append("\n  ").append(seqCount).append(" sequence(s)");
+        if (globalCount > 0) msg.append("\n  ").append(globalCount).append(" global variable(s)");
+        JOptionPane.showMessageDialog(this, msg.toString(), "Import Complete", JOptionPane.INFORMATION_MESSAGE);
     }
-
-
 }

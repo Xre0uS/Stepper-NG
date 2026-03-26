@@ -85,7 +85,6 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
         List<Component> gvarItems = buildStaticVarMenuItems();
         if (!gvarItems.isEmpty()) menuItems.addAll(gvarItems);
 
-        // Auto-regex from message editor
         List<Component> autoRegexItems = buildAutoRegexMenuItems(event);
         if (!autoRegexItems.isEmpty()) menuItems.addAll(autoRegexItems);
 
@@ -260,7 +259,6 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
         boolean isResponse = (selCtx == MessageEditorHttpRequestResponse.SelectionContext.RESPONSE);
         boolean isRequest = (selCtx == MessageEditorHttpRequestResponse.SelectionContext.REQUEST);
 
-        // Only show if we have the relevant message data
         byte[] messageBytes;
         String label;
         if (isResponse && reqResp.response() != null) {
@@ -277,7 +275,6 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
 
         String messageText = new String(messageBytes);
 
-        // Extract pre-selection from Burp's editor
         String preSelection = null;
         int preSelOffset = -1;
         if (editorMsg.selectionOffsets().isPresent()) {
@@ -299,11 +296,10 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
             Component parent = Stepper.getUI() != null ? Stepper.getUI().getUiComponent() : null;
             AutoRegexDialog.Result result = AutoRegexDialog.show(
                     parent, messageText,
-                    "Auto-Generate Regex — " + fLabel,
+                    "Auto-Generate Regex - " + fLabel,
                     fLabel, fPreSelection, fPreSelOffset);
 
             if (result != null && !result.regex.isEmpty()) {
-                // Offer to create a DVAR or copy
                 DynamicGlobalVariableManager manager = Stepper.getDynamicGlobalVariableManager();
                 if (manager != null) {
                     String varName = result.variableName.isEmpty()

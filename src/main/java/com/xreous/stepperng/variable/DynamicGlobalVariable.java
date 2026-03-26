@@ -70,7 +70,7 @@ public class DynamicGlobalVariable extends StepVariable {
     }
 
     public boolean matchesHost(String host) {
-        if (hostPattern == null) return true; // No filter = match all
+        if (hostPattern == null) return true;
         if (host == null) return false;
         return hostPattern.matcher(host).find();
     }

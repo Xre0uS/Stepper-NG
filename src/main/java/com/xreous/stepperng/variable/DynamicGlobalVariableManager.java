@@ -2,7 +2,6 @@ package com.xreous.stepperng.variable;
 
 import com.xreous.stepperng.variable.listener.StepVariableListener;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -43,14 +42,21 @@ public class DynamicGlobalVariableManager {
 
     public void processResponse(String responseText, String host) {
         for (DynamicGlobalVariable variable : variables) {
-            variable.updateFromResponse(responseText, host);
+            try {
+                variable.updateFromResponse(responseText, host);
+            } catch (Exception e) {
+                try { com.xreous.stepperng.Stepper.montoya.logging().logToError("Stepper-NG: DVAR response capture error for '" + variable.getIdentifier() + "': " + e.getMessage()); } catch (Exception ignored) {}
+            }
         }
     }
 
-     // Only call this when hasRequestCaptureDvars() returns true.
     public void processRequest(String requestText, String host) {
         for (DynamicGlobalVariable variable : variables) {
-            variable.updateFromRequest(requestText, host);
+            try {
+                variable.updateFromRequest(requestText, host);
+            } catch (Exception e) {
+                try { com.xreous.stepperng.Stepper.montoya.logging().logToError("Stepper-NG: DVAR request capture error for '" + variable.getIdentifier() + "': " + e.getMessage()); } catch (Exception ignored) {}
+            }
         }
     }
 

@@ -51,7 +51,6 @@ public class Utils {
         return cachedEditorFont;
     }
 
-    // Traverse the component tree for a JTextComponent whose font is monospaced.
     private static Font findMonoTextComponentFont(Component comp) {
         if (comp instanceof javax.swing.text.JTextComponent tc) {
             Font f = tc.getFont();

@@ -120,7 +120,6 @@ public class RegexGenerator {
                 }
             }
             if (c == ':') {
-                // Try JSON key anchor first
                 String sub = before.substring(0, i + 1);
                 int keyMatch = findJsonKeyAnchor(sub);
                 if (keyMatch >= 0) {
@@ -151,7 +150,6 @@ public class RegexGenerator {
 
         if (bestKeyStart >= 0) {
             String anchor = before.substring(bestKeyStart);
-            // If the key part of the anchor is very short, extend backward for uniqueness
             if (anchorKeyLength(anchor) < 3 && bestKeyStart > 0) {
                 String extended = extendAnchorBackward(before, bestKeyStart);
                 if (extended != null) return extended;
@@ -178,7 +176,6 @@ public class RegexGenerator {
     }
 
     private static int findJsonKeyAnchor(String before) {
-        // Match "key": optionally followed by opening quote — find the LAST occurrence (closest to selection)
         Pattern jsonKey = Pattern.compile("\"([A-Za-z_][A-Za-z0-9_.-]*)\"\\s*:\\s*\"?\\s*$");
         Matcher m = jsonKey.matcher(before);
         if (m.find()) return m.start();
@@ -298,7 +295,6 @@ public class RegexGenerator {
     }
 
     private static int anchorKeyLength(String anchor) {
-        // Strip leading quotes
         int i = 0;
         while (i < anchor.length() && (anchor.charAt(i) == '"' || anchor.charAt(i) == '\'')) i++;
         int start = i;
@@ -309,15 +305,11 @@ public class RegexGenerator {
         return i - start;
     }
 
-    // Extend an anchor backward past the previous delimiter to include more unique context
     private static String extendAnchorBackward(String before, int bestKeyStart) {
-        // Scan backward from bestKeyStart to find a preceding delimiter
         int scan = bestKeyStart - 1;
-        // Skip whitespace
         while (scan >= 0 && Character.isWhitespace(before.charAt(scan))) scan--;
         if (scan < 0) return null;
 
-        // Look for the preceding comma, semicolon, opening brace, etc.
         int limit = Math.max(0, bestKeyStart - 60);
         int extStart = -1;
 
@@ -332,13 +324,11 @@ public class RegexGenerator {
         if (extStart >= 0) {
             String extended = before.substring(extStart);
             if (extended.length() > 80) {
-                // Too long — trim from the delimiter
                 extended = before.substring(bestKeyStart > 20 ? bestKeyStart - 20 : 0);
             }
             return extended;
         }
 
-        // If no delimiter found, just take more chars from further back
         int take = Math.min(bestKeyStart, 30);
         if (take > 0) {
             return before.substring(bestKeyStart - take);

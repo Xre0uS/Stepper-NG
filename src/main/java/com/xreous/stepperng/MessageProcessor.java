@@ -17,11 +17,10 @@ import com.xreous.stepperng.variable.RegexVariable;
 import com.xreous.stepperng.variable.StaticGlobalVariable;
 
 import javax.swing.*;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,23 +39,22 @@ public class MessageProcessor implements HttpHandler {
     public static final Pattern EXECUTE_BEFORE_HEADER_PATTERN = Pattern.compile("^" + EXECUTE_BEFORE_REGEX + "$", Pattern.CASE_INSENSITIVE);
     public static final Pattern EXECUTE_AFTER_HEADER_PATTERN = Pattern.compile("^" + EXECUTE_AFTER_REGEX + "$", Pattern.CASE_INSENSITIVE);
     public static final Pattern EXECUTE_VAR_HEADER_PATTERN = Pattern.compile("^" + EXECUTE_VAR_REGEX + "$", Pattern.CASE_INSENSITIVE);
-    public static final String STEPPER_IGNORE_HEADER = "X-Stepper-Ignore";
-    public static final Pattern STEPPER_IGNORE_PATTERN = Pattern.compile("^"+STEPPER_IGNORE_HEADER, Pattern.CASE_INSENSITIVE);
     public static final Pattern SEQUENCE_NAME_PATTERN = Pattern.compile("^([^:]+)(?::?)");
     public static final Pattern VARIABLE_LIST_PATTERN = Pattern.compile("[^:]+(:\\s*(?<variables>.+))?");
     public static final Pattern VARIABLE_PATTERN = Pattern.compile("(?<key>[^=]+)=(?<value>[^;]+);?");
     public static final Pattern SINGLE_VARIABLE_PATTERN = Pattern.compile("(?<key>[^=]+)=(?<value>.*)");
 
-    // Thread-local execution stack for infinite loop prevention
     private static final Set<Thread> internalRequestThreads = Collections.synchronizedSet(new HashSet<>());
     private static final ThreadLocal<ArrayDeque<String>> executionStack = ThreadLocal.withInitial(ArrayDeque::new);
-    private final java.util.concurrent.atomic.AtomicInteger requestCounter = new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final AtomicInteger requestCounter = new AtomicInteger(0);
 
-    // Pre-compiled patterns for hot-path checks — avoids Pattern.compile on every request
-    private static final Pattern STEP_VARIABLE_PATTERN = Pattern.compile(Pattern.quote("$VAR:") + "(.*?)" + Pattern.quote("$"));
-    private static final Pattern DVAR_VARIABLE_PATTERN = Pattern.compile("\\$DVAR:([^$]+)\\$");
-    private static final Pattern GVAR_VARIABLE_PATTERN = Pattern.compile("\\$GVAR:([^$]+)\\$");
     public static final Pattern CROSS_SEQ_VAR_PATTERN = Pattern.compile("\\$VAR:([^:$]+):([^$]+)\\$");
+
+    private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
+
+    private static final AtomicBoolean showingUnprocessableWarning = new AtomicBoolean(false);
+    private static volatile long lastUnprocessableWarningDismissedAt = 0;
+    private static final long UNPROCESSABLE_WARNING_COOLDOWN_MS = 30_000;
 
     public static void markInternalRequest() {
         internalRequestThreads.add(Thread.currentThread());
@@ -77,6 +75,7 @@ public class MessageProcessor implements HttpHandler {
     public static void popSequence() {
         ArrayDeque<String> stack = executionStack.get();
         if (!stack.isEmpty()) stack.pop();
+        if (stack.isEmpty()) executionStack.remove();
     }
 
     public static boolean isSequenceOnStack(String sequenceName) {
@@ -87,34 +86,71 @@ public class MessageProcessor implements HttpHandler {
         return executionStack.get().size();
     }
 
+    public static void cleanup() {
+        internalRequestThreads.clear();
+        requestCounter.set(0);
+    }
+
+    public static int incrementAndGetRequestCount() {
+        return requestCounter.incrementAndGet();
+    }
+
     public MessageProcessor(SequenceManager sequenceManager, Preferences preferences, DynamicGlobalVariableManager dynamicVarManager){
         this.sequenceManager = sequenceManager;
         this.preferences = preferences;
         this.dynamicGlobalVariableManager = dynamicVarManager;
     }
 
+    private boolean getBoolPref(String key, boolean defaultValue) {
+        if (preferences == null) return defaultValue;
+        try {
+            Object val = preferences.getSetting(key);
+            return val instanceof Boolean b ? b : defaultValue;
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
+    private static final byte[] VAR_MARKER = "$VAR:".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] DVAR_MARKER = "$DVAR:".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] GVAR_MARKER = "$GVAR:".getBytes(StandardCharsets.US_ASCII);
+
     public static boolean hasStepVariable(byte[] content) {
-        return hasStepVariable(new String(content));
+        return containsBytes(content, VAR_MARKER);
     }
 
     public static boolean hasStepVariable(String content) {
-        return STEP_VARIABLE_PATTERN.matcher(content).find();
+        return content.contains("$VAR:");
     }
 
     public static boolean hasDvarVariable(byte[] content) {
-        return hasDvarVariable(new String(content));
+        return containsBytes(content, DVAR_MARKER);
     }
 
     public static boolean hasDvarVariable(String content) {
-        return DVAR_VARIABLE_PATTERN.matcher(content).find();
+        return content.contains("$DVAR:");
     }
 
     public static boolean hasGvarVariable(byte[] content) {
-        return hasGvarVariable(new String(content));
+        return containsBytes(content, GVAR_MARKER);
     }
 
     public static boolean hasGvarVariable(String content) {
-        return GVAR_VARIABLE_PATTERN.matcher(content).find();
+        return content.contains("$GVAR:");
+    }
+
+    private static boolean containsBytes(byte[] haystack, byte[] needle) {
+        if (haystack.length < needle.length) return false;
+        outer:
+        for (int i = 0, limit = haystack.length - needle.length; i <= limit; i++) {
+            if (haystack[i] == needle[0]) {
+                for (int j = 1; j < needle.length; j++) {
+                    if (haystack[i + j] != needle[j]) continue outer;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     public static boolean isUnprocessable(byte[] content){
@@ -148,7 +184,6 @@ public class MessageProcessor implements HttpHandler {
                     info.sequence.executeBlocking(merged);
                     alreadyExecuted.add(info.sequence);
                 }
-                // Re-read bytes after header removal
                 requestBytes = request.toByteArray().getBytes();
             }
 
@@ -162,44 +197,54 @@ public class MessageProcessor implements HttpHandler {
                     merged.putAll(info.arguments);
                     serializedMap.put(info.sequence.getTitle(), merged);
                 }
-                com.google.gson.Gson gson = new com.google.gson.Gson();
-                String serialized = gson.toJson(serializedMap);
+                String serialized = GSON.toJson(serializedMap);
                 String existingNotes = annotations.notes() != null ? annotations.notes() : "";
                 annotations = annotations.withNotes(existingNotes + EXECUTE_AFTER_HEADER + ":" + serialized);
-                // Re-read bytes after header removal
                 requestBytes = request.toByteArray().getBytes();
             }
 
-            // Fast path: if there's no '$' in the request, skip all variable checks
             String requestString = new String(requestBytes);
             boolean hasDollar = requestString.indexOf('$') >= 0;
 
-            // Capture DVARs from the request (client-side generated values) — before replacements
-            if (dynamicGlobalVariableManager != null && dynamicGlobalVariableManager.hasRequestCaptureDvars()) {
+            if (dynamicGlobalVariableManager != null
+                    && !dynamicGlobalVariableManager.getVariables().isEmpty()
+                    && dynamicGlobalVariableManager.hasRequestCaptureDvars()) {
                 try {
                     String host = request.httpService() != null ? request.httpService().host() : null;
                     dynamicGlobalVariableManager.processRequest(requestString, host);
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    try { Stepper.montoya.logging().logToError("Stepper-NG: DVAR request capture error: " + e.getMessage()); } catch (Exception ignored) {}
+                }
             }
 
             if (hasDollar) {
                 Set<StepSequence> autoExecSequences = sequenceManager.getSequencesToAutoExecute(requestString);
                 if (!autoExecSequences.isEmpty()) {
                     int validateEveryN = 1;
-                    try {
-                        Object val = preferences.getSetting(Globals.PREF_SESSION_VALIDATE_EVERY_N);
-                        if (val instanceof Integer i) validateEveryN = Math.max(1, i);
-                    } catch (Exception ignored) {}
+                    if (preferences != null) {
+                        try {
+                            Object val = preferences.getSetting(Globals.PREF_SESSION_VALIDATE_EVERY_N);
+                            if (val instanceof Integer i) validateEveryN = Math.max(1, i);
+                        } catch (Exception e) {
+                            try { Stepper.montoya.logging().logToError("Stepper-NG: Failed to read validate-every-N preference: " + e.getMessage()); } catch (Exception ignored) {}
+                        }
+                    }
 
-                    int count = requestCounter.incrementAndGet();
+                    boolean holdRequests = getBoolPref(Globals.PREF_HOLD_REQUESTS_DURING_EXECUTION, false);
+
+                    int count = incrementAndGetRequestCount();
                     boolean shouldValidate = (count % validateEveryN == 0);
 
                     for (StepSequence seq : autoExecSequences) {
-                        if (!alreadyExecuted.contains(seq) && !seq.isExecuting()
+                        if (!alreadyExecuted.contains(seq)
                                 && !isSequenceOnStack(seq.getTitle())
-                                && getStackDepth() < Globals.MAX_SEQUENCE_DEPTH
-                                && shouldValidate) {
-                            seq.executeBlocking();
+                                && getStackDepth() < Globals.MAX_SEQUENCE_DEPTH) {
+                            if (!seq.isExecuting() && shouldValidate) {
+                                seq.executeBlocking();
+                            } else if (holdRequests && seq.isExecuting()
+                                    && getStackDepth() == 0) {
+                                seq.awaitExecution();
+                            }
                         }
                     }
                 }
@@ -207,24 +252,41 @@ public class MessageProcessor implements HttpHandler {
                 if (hasStepVariable(requestString)) {
                     HashMap<StepSequence, List<StepVariable>> allVariables = sequenceManager.getRollingVariablesFromAllSequences();
                     if(allVariables.size() > 0) {
-                        if(isUnprocessable(requestBytes) && Boolean.TRUE.equals(preferences.getSetting(Globals.PREF_ENABLE_UNPROCESSABLE_WARNING))){
-                            final boolean[] proceed = {true};
-                            try {
-                                SwingUtilities.invokeAndWait(() -> {
-                                    int result = JOptionPane.showConfirmDialog(Stepper.getUI().getUiComponent(),
-                                            "The request contains non UTF characters.\nStepper is able to make the replacements, " +
-                                                    "but some of the binary data may be lost. Continue?",
-                                            "Stepper Replacement Error", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                                    if(result == JOptionPane.NO_OPTION) proceed[0] = false;
-                                });
-                            } catch (Exception ignored) {}
-                            if(!proceed[0])
-                                return RequestToBeSentAction.continueWith(request, annotations);
+                        if(isUnprocessable(requestBytes) && getBoolPref(Globals.PREF_ENABLE_UNPROCESSABLE_WARNING, true)){
+                            if (System.currentTimeMillis() - lastUnprocessableWarningDismissedAt >= UNPROCESSABLE_WARNING_COOLDOWN_MS
+                                    && showingUnprocessableWarning.compareAndSet(false, true)) {
+                                final boolean[] proceed = {true};
+                                try {
+                                    SwingUtilities.invokeAndWait(() -> {
+                                        try {
+                                            String[] options = {"Yes", "No", "Don't show again"};
+                                            int result = JOptionPane.showOptionDialog(Stepper.getUI().getUiComponent(),
+                                                    "The request contains non-UTF-8 characters.\nStepper can make the replacements, " +
+                                                            "but some binary data may be lost. Continue?",
+                                                    "Stepper Replacement Warning", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
+                                                    null, options, options[0]);
+                                            if (result == 1) {
+                                                proceed[0] = false;
+                                            } else if (result == 2) {
+                                                if (preferences != null) preferences.setSetting(Globals.PREF_ENABLE_UNPROCESSABLE_WARNING, false);
+                                            }
+                                        } finally {
+                                            lastUnprocessableWarningDismissedAt = System.currentTimeMillis();
+                                            showingUnprocessableWarning.set(false);
+                                        }
+                                    });
+                                } catch (Exception ignored) {
+                                    lastUnprocessableWarningDismissedAt = System.currentTimeMillis();
+                                    showingUnprocessableWarning.set(false);
+                                }
+                                if (!proceed[0])
+                                    return RequestToBeSentAction.continueWith(request, annotations);
+                            }
                         }
 
                         try {
                             requestBytes = makeReplacementsForAllSequences(requestBytes, allVariables);
-                            if(preferences.getSetting(Globals.PREF_UPDATE_REQUEST_LENGTH)){
+                            if(getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)){
                                 requestBytes = updateContentLength(requestBytes);
                             }
                         } catch (Exception e) {
@@ -236,19 +298,23 @@ public class MessageProcessor implements HttpHandler {
                 if (hasDvarVariable(requestString)) {
                     try {
                         requestBytes = makeDvarReplacements(requestBytes, dynamicGlobalVariableManager);
-                        if(preferences.getSetting(Globals.PREF_UPDATE_REQUEST_LENGTH)){
+                        if(getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)){
                             requestBytes = updateContentLength(requestBytes);
                         }
-                    } catch (UnsupportedOperationException e) { /* Read-only message */ }
+                    } catch (UnsupportedOperationException e) {
+                        Stepper.montoya.logging().logToError("Stepper-NG: DVAR replacement error: " + e.getMessage());
+                    }
                 }
 
                 if (hasGvarVariable(requestString)) {
                     try {
                         requestBytes = makeGvarReplacements(requestBytes, dynamicGlobalVariableManager);
-                        if(preferences.getSetting(Globals.PREF_UPDATE_REQUEST_LENGTH)){
+                        if(getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)){
                             requestBytes = updateContentLength(requestBytes);
                         }
-                    } catch (UnsupportedOperationException e) { /* Read-only message */ }
+                    } catch (UnsupportedOperationException e) {
+                        Stepper.montoya.logging().logToError("Stepper-NG: GVAR replacement error: " + e.getMessage());
+                    }
                 }
             }
 
@@ -272,38 +338,47 @@ public class MessageProcessor implements HttpHandler {
                 annotations = annotations.withNotes(cleanedNotes);
             }
         }
-        if (dynamicGlobalVariableManager != null) {
+
+        boolean needsDvar = dynamicGlobalVariableManager != null
+                && !dynamicGlobalVariableManager.getVariables().isEmpty();
+        boolean needsPassthrough = !isInternalRequest() && sequenceManager != null
+                && sequenceManager.hasAnyPublishedRegexVariables();
+
+        if (!needsDvar && !needsPassthrough) {
+            return ResponseReceivedAction.continueWith(responseReceived, annotations);
+        }
+
+        // Lazily convert response to string only once, shared by DVAR and passthrough
+        String responseText = null;
+
+        if (needsDvar) {
             try {
-                String responseText = responseReceived.toString();
+                responseText = responseReceived.toString();
                 String host = responseReceived.initiatingRequest() != null &&
                               responseReceived.initiatingRequest().httpService() != null ?
                               responseReceived.initiatingRequest().httpService().host() : null;
                 dynamicGlobalVariableManager.processResponse(responseText, host);
             } catch (Exception e) {
+                try { Stepper.montoya.logging().logToError("Stepper-NG: DVAR response capture error: " + e.getMessage()); } catch (Exception ignored) {}
             }
         }
 
-        if (!isInternalRequest() && sequenceManager != null) {
+        if (needsPassthrough) {
             try {
-                String responseText = null; // Lazy — only convert if there are published vars
+                if (responseText == null) {
+                    responseText = new String(responseReceived.toByteArray().getBytes());
+                }
                 for (StepSequence seq : sequenceManager.getSequences()) {
                     if (seq.isDisabled()) continue;
                     boolean synced = false;
                     for (Step step : seq.getSteps()) {
                         for (StepVariable var : step.getVariableManager().getVariables()) {
                             if (var.isPublished() && var instanceof RegexVariable regexVar && regexVar.isValid()) {
-                                if (responseText == null) {
-                                    responseText = new String(responseReceived.toByteArray().getBytes());
-                                }
                                 String oldVal = var.getValue();
                                 regexVar.updateFromResponse(responseText);
                                 String newVal = var.getValue();
                                 if (newVal != null && !newVal.isEmpty() && !newVal.equals(oldVal)) {
                                     synced = true;
-                                    Stepper.montoya.logging().logToOutput(
-                                        "Stepper-NG passthrough: " + var.getIdentifier()
-                                        + " updated: " + (oldVal == null || oldVal.isEmpty() ? "(empty)" : oldVal.substring(0, Math.min(oldVal.length(), 30)))
-                                        + " → " + newVal.substring(0, Math.min(newVal.length(), 30)));
                                 }
                             }
                         }
@@ -321,6 +396,7 @@ public class MessageProcessor implements HttpHandler {
     }
 
     private boolean isValidTool(burp.api.montoya.core.ToolSource toolSource){
+        if(preferences == null) return true;
         if(preferences.getSetting(Globals.PREF_VARS_IN_ALL_TOOLS)) return true;
         if(toolSource.isFromTool(ToolType.PROXY))
             return (boolean) preferences.getSetting(Globals.PREF_VARS_IN_PROXY);
@@ -339,34 +415,17 @@ public class MessageProcessor implements HttpHandler {
 
 
     public static byte[] makeReplacementsForSingleSequence(byte[] originalContent, List<StepVariable> variables) {
-        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
-
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (StepVariable variable : variables) {
             String match = StepVariable.createVariableString(variable.getIdentifier());
             String replace = variable.getValue() != null ? variable.getValue() : "";
-            ReplacingInputStream.Replacement replacement = new ReplacingInputStream.Replacement(match.getBytes(StandardCharsets.UTF_8), replace.getBytes(StandardCharsets.UTF_8));
-            replacements.add(replacement);
+            replacements.add(new ReplacingInputStream.Replacement(match, replace));
         }
-        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
-
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        int b;
-        try {
-            while (-1 != (b = inputStream.read())) {
-                bos.write(b);
-            }
-        }catch (IOException e){
-            Stepper.montoya.logging().logToError("Stepper-NG: Stream replacement error: " + e.getMessage());
-        }
-
-        return bos.toByteArray();
+        return ReplacingInputStream.applyReplacements(originalContent, replacements);
     }
 
     public static byte[] makeReplacementsForAllSequences(byte[] originalContent,
                                                          HashMap<StepSequence, List<StepVariable>> sequenceVariableMap) {
-        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
-
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (Map.Entry<StepSequence, List<StepVariable>> sequenceEntry : sequenceVariableMap.entrySet()) {
             StepSequence sequence = sequenceEntry.getKey();
@@ -374,29 +433,16 @@ public class MessageProcessor implements HttpHandler {
             for (StepVariable variable : variables) {
                 String match = StepVariable.createVariableString(sequence.getTitle(), variable.getIdentifier());
                 String replace = variable.getValue() != null ? variable.getValue() : "";
-                ReplacingInputStream.Replacement replacement = new ReplacingInputStream.Replacement(match.getBytes(StandardCharsets.UTF_8), replace.getBytes(StandardCharsets.UTF_8));
-                replacements.add(replacement);
+                replacements.add(new ReplacingInputStream.Replacement(match, replace));
             }
         }
-        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
-
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        int b;
-        try {
-            while (-1 != (b = inputStream.read())) {
-                bos.write(b);
-            }
-        }catch (IOException e){
-            Stepper.montoya.logging().logToError("Stepper-NG: Stream replacement error: " + e.getMessage());
-        }
-
-        return bos.toByteArray();
+        return ReplacingInputStream.applyReplacements(originalContent, replacements);
     }
 
     public static byte[] updateContentLength(byte[] request){
         String requestStr = new String(request, StandardCharsets.UTF_8);
         int headerEnd = requestStr.indexOf("\r\n\r\n");
-        if (headerEnd == -1) return request; // No body separator found
+        if (headerEnd == -1) return request;
 
         String headerPart = requestStr.substring(0, headerEnd);
         String bodyPart = requestStr.substring(headerEnd + 4);
@@ -408,7 +454,7 @@ public class MessageProcessor implements HttpHandler {
         for (String line : headerLines) {
             if (line.toLowerCase().startsWith("content-length:")) {
                 found = true;
-                continue; // skip old content-length
+                continue;
             }
             newHeaders.append(line).append("\r\n");
         }
@@ -477,9 +523,8 @@ public class MessageProcessor implements HttpHandler {
         if (m.find()) {
             String serialized = m.group(1);
             try {
-                com.google.gson.Gson gson = new com.google.gson.Gson();
                 java.lang.reflect.Type mapType = new com.google.gson.reflect.TypeToken<HashMap<String, HashMap<String, String>>>(){}.getType();
-                HashMap<String, HashMap<String, String>> allSequences = gson.fromJson(serialized, mapType);
+                HashMap<String, HashMap<String, String>> allSequences = GSON.fromJson(serialized, mapType);
                 if (allSequences != null) {
                     for (Map.Entry<String, HashMap<String, String>> entry : allSequences.entrySet()) {
                         String sequenceName = entry.getKey();
@@ -494,7 +539,6 @@ public class MessageProcessor implements HttpHandler {
                     }
                 }
             } catch (com.google.gson.JsonSyntaxException e) {
-                // Fallback: try the old delimiter format for backward compatibility
                 String[] parts = serialized.split(EXECUTE_AFTER_COMMENT_DELIMITER);
                 for (String sequenceName : parts) {
                     if (sequenceName == null || sequenceName.trim().isEmpty()) continue;
@@ -509,21 +553,6 @@ public class MessageProcessor implements HttpHandler {
         return execSequences;
     }
 
-    public static boolean hasHeaderMatchingPattern(List<String> headers, Pattern pattern){
-        return headers.stream().anyMatch(s -> pattern.asPredicate().test(s));
-    }
-
-    public static byte[] addHeaderToRequest(byte[] request, String header){
-        String requestStr = new String(request, StandardCharsets.UTF_8);
-        int headerEnd = requestStr.indexOf("\r\n\r\n");
-        if (headerEnd == -1) {
-            return (requestStr.trim() + "\r\n" + header + "\r\n\r\n").getBytes(StandardCharsets.UTF_8);
-        }
-        String headerPart = requestStr.substring(0, headerEnd);
-        String bodyPart = requestStr.substring(headerEnd + 4);
-        return (headerPart + "\r\n" + header + "\r\n\r\n" + bodyPart).getBytes(StandardCharsets.UTF_8);
-    }
-
     public static HttpRequest removeHeaderMatchingPattern(HttpRequest request, Pattern pattern){
         List<burp.api.montoya.http.message.HttpHeader> headers = request.headers();
         for (burp.api.montoya.http.message.HttpHeader header : headers) {
@@ -536,54 +565,28 @@ public class MessageProcessor implements HttpHandler {
     }
 
     public static byte[] makeDvarReplacements(byte[] originalContent, DynamicGlobalVariableManager manager) {
-        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (DynamicGlobalVariable dvar : manager.getVariables()) {
             if (dvar.getValue() != null) {
                 String match = DynamicGlobalVariable.createDvarString(dvar.getIdentifier());
                 String replace = dvar.getValue();
-                replacements.add(new ReplacingInputStream.Replacement(
-                        match.getBytes(StandardCharsets.UTF_8),
-                        replace.getBytes(StandardCharsets.UTF_8)));
+                replacements.add(new ReplacingInputStream.Replacement(match, replace));
             }
         }
-        if (replacements.isEmpty()) return request;
-        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        int b;
-        try {
-            while (-1 != (b = inputStream.read())) {
-                bos.write(b);
-            }
-        } catch (IOException e) {
-            Stepper.montoya.logging().logToError("Stepper-NG: DVAR replacement error: " + e.getMessage());
-        }
-        return bos.toByteArray();
+        if (replacements.isEmpty()) return originalContent;
+        return ReplacingInputStream.applyReplacements(originalContent, replacements);
     }
 
     public static byte[] makeGvarReplacements(byte[] originalContent, DynamicGlobalVariableManager manager) {
-        byte[] request = Arrays.copyOf(originalContent, originalContent.length);
         List<ReplacingInputStream.Replacement> replacements = new ArrayList<>();
         for (StaticGlobalVariable svar : manager.getStaticVariables()) {
             if (svar.getValue() != null) {
                 String match = StaticGlobalVariable.createGvarString(svar.getIdentifier());
                 String replace = svar.getValue();
-                replacements.add(new ReplacingInputStream.Replacement(
-                        match.getBytes(StandardCharsets.UTF_8),
-                        replace.getBytes(StandardCharsets.UTF_8)));
+                replacements.add(new ReplacingInputStream.Replacement(match, replace));
             }
         }
-        if (replacements.isEmpty()) return request;
-        ReplacingInputStream inputStream = new ReplacingInputStream(new ByteArrayInputStream(request), replacements);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        int b;
-        try {
-            while (-1 != (b = inputStream.read())) {
-                bos.write(b);
-            }
-        } catch (IOException e) {
-            Stepper.montoya.logging().logToError("Stepper-NG: GVAR replacement error: " + e.getMessage());
-        }
-        return bos.toByteArray();
+        if (replacements.isEmpty()) return originalContent;
+        return ReplacingInputStream.applyReplacements(originalContent, replacements);
     }
 }

@@ -51,7 +51,7 @@ public class DynamicGlobalVariablesPanel extends JPanel {
         staticButtonPanel.add(removeStaticBtn);
 
         JPanel staticPanel = new JPanel(new BorderLayout());
-        JLabel staticLabel = new JLabel("  Static Global Variables — Use $GVAR:name$ in requests. Set name and value manually.");
+        JLabel staticLabel = new JLabel("  Static Global Variables - Use $GVAR:name$ in requests. Set name and value manually.");
         staticLabel.setFont(staticLabel.getFont().deriveFont(Font.PLAIN));
         staticLabel.setBorder(BorderFactory.createEmptyBorder(8, 4, 4, 0));
         staticPanel.add(staticLabel, BorderLayout.NORTH);
@@ -88,7 +88,7 @@ public class DynamicGlobalVariablesPanel extends JPanel {
         dynamicButtonPanel.add(removeDynBtn);
 
         JPanel dynamicPanel = new JPanel(new BorderLayout());
-        JLabel dynamicLabel = new JLabel("  Dynamic Global Variables — Use $DVAR:name$ in requests. Auto-extracts from HTTP responses (optionally requests) via regex.");
+        JLabel dynamicLabel = new JLabel("  Dynamic Global Variables - Use $DVAR:name$ in requests. Auto-extracts from HTTP responses (optionally requests) via regex.");
         dynamicLabel.setFont(dynamicLabel.getFont().deriveFont(Font.PLAIN));
         dynamicLabel.setBorder(BorderFactory.createEmptyBorder(8, 4, 4, 0));
         dynamicPanel.add(dynamicLabel, BorderLayout.NORTH);

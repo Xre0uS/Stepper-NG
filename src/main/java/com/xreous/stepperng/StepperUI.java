@@ -31,7 +31,7 @@ public class StepperUI {
         this.managerTabMap = new HashMap<>();
 
         this.tabbedPane = new JTabbedPane();
-        CustomTabComponent addSequenceTabComponent = new CustomTabComponent( "Add Sequence");
+        CustomTabComponent addSequenceTabComponent = new CustomTabComponent("+");
         addSequenceTabComponent.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -40,14 +40,13 @@ public class StepperUI {
                 }
             }
         });
-        this.tabbedPane.addTab("Add Sequence", null);
+        this.tabbedPane.addTab("+", null);
         this.tabbedPane.setTabComponentAt(0, addSequenceTabComponent);
 
         this.tabbedPane.addTab("Global Variables", new DynamicGlobalVariablesPanel(dynamicVarManager));
         this.tabbedPane.addTab("Preferences", new OptionsPanel(this.sequenceManager));
         this.tabbedPane.addTab("About", new AboutPanel());
 
-        // Register Ctrl+Shift+G to execute the currently selected sequence
         InputMap im = this.tabbedPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), "ExecuteSelectedSequence");
         this.tabbedPane.getActionMap().put("ExecuteSelectedSequence", new AbstractAction() {
@@ -82,7 +81,9 @@ public class StepperUI {
         }
 
         if(this.sequenceManager.getSequences().size() == 0){
-            this.tabbedPane.setSelectedIndex(3);
+            this.tabbedPane.setSelectedIndex(3); // About tab
+        } else {
+            this.tabbedPane.setSelectedIndex(0); // first sequence tab
         }
 
         this.sequenceManager.addStepSequenceListener(new StepSequenceListener() {
@@ -164,7 +165,7 @@ public class StepperUI {
         String title = sequence.getTitle();
         if (sequence.isDisabled()) {
             tabComponent.setTitle("⊘ " + title);
-            tabComponent.setToolTipText("Sequence disabled — variables passed as literal text");
+            tabComponent.setToolTipText("Sequence disabled - variables passed as literal text");
         } else {
             tabComponent.setTitle(title);
             tabComponent.setToolTipText(null);
@@ -190,8 +191,8 @@ public class StepperUI {
         this.tabbedPane.remove(stepSequenceTab);
         this.managerTabMap.remove(sequence);
 
-        if(removedIndex == 0 && this.managerTabMap.size() == 0){ //If we removed the leftmost tab and have no other tabs
-            this.tabbedPane.setSelectedIndex(3); //View the about tab
+        if(removedIndex == 0 && this.managerTabMap.size() == 0){
+            this.tabbedPane.setSelectedIndex(3);
         }else if(removedIndex == this.tabbedPane.getTabCount() - 4 && this.managerTabMap.size() > 0) {
             this.tabbedPane.setSelectedIndex(removedIndex-1);
         }

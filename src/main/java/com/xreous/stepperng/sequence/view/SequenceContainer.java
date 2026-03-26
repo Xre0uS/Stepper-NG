@@ -26,6 +26,8 @@ public class SequenceContainer extends JPanel {
     private CustomTabComponent dragSourceTabComponent = null;
     private boolean suppressTabSwitch = false;
     private int userSelectedTabIndex = 0;
+    private boolean suppressUIUpdates = false;
+    private boolean pendingUIRefresh = false;
 
     public SequenceContainer(StepSequence stepSequence){
         super(new BorderLayout());
@@ -43,8 +45,8 @@ public class SequenceContainer extends JPanel {
         this.overviewPanel = new SequenceOverviewPanel(stepSequence);
         tabbedContainer.addTab("Overview", overviewPanel);
 
-        tabbedContainer.addTab("Add Step", null);
-        CustomTabComponent addStepTab = new CustomTabComponent("Add Step");
+        tabbedContainer.addTab("+", null);
+        CustomTabComponent addStepTab = new CustomTabComponent("+");
         tabbedContainer.setTabComponentAt(1, addStepTab);
         addStepTab.addMouseListener(new MouseAdapter() {
             @Override
@@ -61,6 +63,7 @@ public class SequenceContainer extends JPanel {
             addPanelForStep(step);
         }
         refreshAllStepCombos();
+        tabbedContainer.setSelectedIndex(0); // default to Overview tab
 
         this.stepSequence.addStepListener(new StepAdapter(){
             @Override
@@ -75,6 +78,10 @@ public class SequenceContainer extends JPanel {
             }
             @Override
             public void onStepUpdated(Step step) {
+                if (suppressUIUpdates) {
+                    pendingUIRefresh = true;
+                    return;
+                }
                 SwingUtilities.invokeLater(() -> {
                     syncTabOrderFromModel();
                     StepPanel panel = stepToPanelMap.get(step);
@@ -99,15 +106,20 @@ public class SequenceContainer extends JPanel {
 
     private boolean isDragAllowed(int tabIndex) {
         if (!isStepTab(tabIndex)) return false;
-        Integer valIdx = stepSequence.getValidationStepIndex();
-        if (valIdx != null && (tabIndex - 1) == valIdx) return false;
+        int stepIdx = tabIndex - 1;
+        if (stepIdx >= 0 && stepIdx < stepSequence.getSteps().size()) {
+            String stepId = stepSequence.getSteps().get(stepIdx).getStepId();
+            if (stepId.equals(stepSequence.getValidationStepId())) return false;
+        }
         return true;
     }
 
     private boolean isDropAllowed(int tabIndex) {
         if (!isStepTab(tabIndex)) return false;
-        Integer valIdx = stepSequence.getValidationStepIndex();
-        if (valIdx != null && valIdx == 0 && tabIndex == 1) return false;
+        if (tabIndex == 1) {
+            int valIdx = stepSequence.resolveValidationStepIndex();
+            if (valIdx == 0) return false;
+        }
         return true;
     }
 
@@ -122,7 +134,9 @@ public class SequenceContainer extends JPanel {
     }
 
     private void addTabForStep(Step step, StepPanel panel){
-        int insertAt = getAddStepTabIndex();
+        int stepIdx = stepSequence.getSteps().indexOf(step);
+        int insertAt = (stepIdx >= 0) ? stepIdx + 1 : getAddStepTabIndex();
+        if (insertAt > getAddStepTabIndex()) insertAt = getAddStepTabIndex();
         tabbedContainer.insertTab(null, null, panel, null, insertAt);
 
         int stepNumber = getStepCount();
@@ -230,11 +244,11 @@ public class SequenceContainer extends JPanel {
         int fromTabIndex = tabbedContainer.indexOfTabComponent(tabComponent);
         int fromStepIdx = fromTabIndex - 1;
 
-        Integer valIdx = stepSequence.getValidationStepIndex();
-        boolean isValidationStep = valIdx != null && fromStepIdx == valIdx;
+        boolean isValidationStep = fromStepIdx >= 0 && fromStepIdx < stepSequence.getSteps().size()
+                && stepSequence.getSteps().get(fromStepIdx).getStepId().equals(stepSequence.getValidationStepId());
 
         if (isValidationStep) {
-            JMenuItem locked = new JMenuItem("(Validation step — locked)");
+            JMenuItem locked = new JMenuItem("(Validation step - locked)");
             locked.setEnabled(false);
             moveStep.add(locked);
         } else {
@@ -393,12 +407,23 @@ public class SequenceContainer extends JPanel {
 
     public void beginExecution() {
         suppressTabSwitch = true;
+        suppressUIUpdates = true;
+        pendingUIRefresh = false;
     }
 
     public void endExecution() {
         suppressTabSwitch = false;
+        suppressUIUpdates = false;
         if (userSelectedTabIndex >= 0 && userSelectedTabIndex < tabbedContainer.getTabCount()) {
             tabbedContainer.setSelectedIndex(userSelectedTabIndex);
+        }
+        if (pendingUIRefresh) {
+            pendingUIRefresh = false;
+            SwingUtilities.invokeLater(() -> {
+                syncTabOrderFromModel();
+                refreshAllStepCombos();
+                if (overviewPanel != null) overviewPanel.refresh();
+            });
         }
     }
 

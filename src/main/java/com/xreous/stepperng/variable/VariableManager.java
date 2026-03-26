@@ -48,7 +48,9 @@ public abstract class VariableManager {
         for (StepVariableListener listener : this.variableListeners) {
             try {
                 listener.onVariableAdded(variable);
-            }catch (Exception ignored){}
+            }catch (Exception e){
+                try { com.xreous.stepperng.Stepper.montoya.logging().logToError("Stepper-NG: Variable listener error (add): " + e.getMessage()); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -58,7 +60,9 @@ public abstract class VariableManager {
         for (StepVariableListener listener : this.variableListeners) {
             try {
                 listener.onVariableRemoved(variable);
-            }catch (Exception ignored){}
+            }catch (Exception e){
+                try { com.xreous.stepperng.Stepper.montoya.logging().logToError("Stepper-NG: Variable listener error (remove): " + e.getMessage()); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -66,7 +70,9 @@ public abstract class VariableManager {
         for (StepVariableListener listener : this.variableListeners) {
             try {
                 listener.onVariableChange(variable);
-            }catch(Exception ignored){}
+            }catch(Exception e){
+                try { com.xreous.stepperng.Stepper.montoya.logging().logToError("Stepper-NG: Variable listener error (change): " + e.getMessage()); } catch (Exception ignored) {}
+            }
         }
     }
 }

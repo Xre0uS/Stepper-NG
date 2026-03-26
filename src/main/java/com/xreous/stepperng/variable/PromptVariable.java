@@ -1,12 +1,8 @@
 package com.xreous.stepperng.variable;
 
 import com.xreous.stepperng.Stepper;
-import com.xreous.stepperng.step.Step;
-import com.xreous.stepperng.step.StepExecutionInfo;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import java.awt.*;
 import java.util.UUID;
 
 public class PromptVariable extends PreExecutionStepVariable {
@@ -36,9 +32,21 @@ public class PromptVariable extends PreExecutionStepVariable {
 
     @Override
     public void updateVariableBeforeExecution() {
-        String newValue = JOptionPane.showInputDialog(Stepper.getUI().getUiComponent(), "Enter value for variable \"" + this.identifier + "\": ",
-                "Variable Value", JOptionPane.INFORMATION_MESSAGE);
-        this.value = newValue == null ? "" : newValue;
+        final String[] result = {null};
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+            result[0] = JOptionPane.showInputDialog(Stepper.getUI().getUiComponent(), "Enter value for variable \"" + this.identifier + "\": ",
+                    "Variable Value", JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            try {
+                javax.swing.SwingUtilities.invokeAndWait(() ->
+                    result[0] = JOptionPane.showInputDialog(Stepper.getUI().getUiComponent(), "Enter value for variable \"" + this.identifier + "\": ",
+                            "Variable Value", JOptionPane.INFORMATION_MESSAGE)
+                );
+            } catch (Exception e) {
+                result[0] = null;
+            }
+        }
+        this.value = result[0] == null ? "" : result[0];
         notifyChanges();
     }
 }

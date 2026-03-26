@@ -63,7 +63,6 @@ public class PostExecutionVariableTable extends JTable {
 
         JPopupMenu menu = new JPopupMenu();
 
-        // Copy Variable Reference
         String seqTitle = (step != null && step.getSequence() != null) ? step.getSequence().getTitle() : null;
         if (seqTitle != null) {
             String usage = "$VAR:" + seqTitle + ":" + var.getIdentifier() + "$";
@@ -76,7 +75,6 @@ public class PostExecutionVariableTable extends JTable {
         copyInSeqRef.addActionListener(a -> copyToClipboard(inSeqUsage));
         menu.add(copyInSeqRef);
 
-        // Copy Value
         String val = var.getValue();
         if (val != null && !val.isEmpty()) {
             String displayVal = val.length() > 60 ? val.substring(0, 60) + "..." : val;
@@ -85,19 +83,16 @@ public class PostExecutionVariableTable extends JTable {
             menu.add(copyValue);
         }
 
-        // Copy Variable Name
         JMenuItem copyName = new JMenuItem("Copy Variable Name: " + var.getIdentifier());
         copyName.addActionListener(a -> copyToClipboard(var.getIdentifier()));
         menu.add(copyName);
 
-        // Copy Regex
         if (var instanceof RegexVariable rv && rv.getConditionText() != null && !rv.getConditionText().isEmpty()) {
             JMenuItem copyRegex = new JMenuItem("Copy Regex");
             copyRegex.addActionListener(a -> copyToClipboard(rv.getConditionText()));
             menu.add(copyRegex);
         }
 
-        // Toggle Published
         menu.addSeparator();
         JMenuItem togglePublished = new JMenuItem(var.isPublished() ? "Unpublish" : "Publish");
         togglePublished.addActionListener(a -> {

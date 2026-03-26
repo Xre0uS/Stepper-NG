@@ -11,6 +11,7 @@ import com.xreous.stepperng.variable.DynamicGlobalVariable;
 import com.xreous.stepperng.variable.DynamicGlobalVariableManager;
 import com.xreous.stepperng.variable.StaticGlobalVariable;
 import com.xreous.stepperng.variable.StepVariable;
+import com.xreous.stepperng.variable.VariableManager;
 import com.xreous.stepperng.variable.listener.StepVariableListener;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.util.view.WrappedTextPane;
@@ -45,6 +46,11 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
     private byte[] rawRequest;
     private int lastSearchIndex = 0;
     private final StepVariableListener variableRefreshListener;
+    private final List<VariableManager> registeredVariableManagers = new ArrayList<>();
+    private final List<StepSequence> registeredSequences = new ArrayList<>();
+    private final Map<StepSequence, com.xreous.stepperng.step.listener.StepListener> registeredStepListeners = new HashMap<>();
+    private com.xreous.stepperng.sequencemanager.listener.StepSequenceListener sequenceManagerListener;
+    private boolean listenersRegistered = false;
 
     public VariableReplacementsTab(SequenceManager sequenceManager) {
         this.sequenceManager = sequenceManager;
@@ -155,6 +161,14 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
                 hideSearchBar();
             }
         });
+
+        wrapperPanel.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.DISPLAYABILITY_CHANGED) != 0) {
+                if (!wrapperPanel.isDisplayable()) {
+                    deregisterVariableListeners();
+                }
+            }
+        });
     }
 
     private void showSearchBar() {
@@ -248,6 +262,8 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
     }
 
     private void registerVariableListeners() {
+        if (listenersRegistered) return;
+        listenersRegistered = true;
         for (StepSequence seq : sequenceManager.getSequences()) {
             attachSequenceListeners(seq);
         }
@@ -255,22 +271,50 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
         if (dvarManager != null) {
             dvarManager.addVariableListener(variableRefreshListener);
         }
-        sequenceManager.addStepSequenceListener(new com.xreous.stepperng.sequencemanager.listener.StepSequenceListener() {
+        sequenceManagerListener = new com.xreous.stepperng.sequencemanager.listener.StepSequenceListener() {
             @Override public void onStepSequenceAdded(StepSequence sequence) { attachSequenceListeners(sequence); }
             @Override public void onStepSequenceRemoved(StepSequence sequence) {}
-        });
+        };
+        sequenceManager.addStepSequenceListener(sequenceManagerListener);
+    }
+
+    private void deregisterVariableListeners() {
+        if (!listenersRegistered) return;
+        listenersRegistered = false;
+        for (VariableManager vm : registeredVariableManagers) {
+            vm.removeVariableListener(variableRefreshListener);
+        }
+        registeredVariableManagers.clear();
+        for (Map.Entry<StepSequence, com.xreous.stepperng.step.listener.StepListener> entry : registeredStepListeners.entrySet()) {
+            entry.getKey().removeStepListener(entry.getValue());
+        }
+        registeredStepListeners.clear();
+        registeredSequences.clear();
+        DynamicGlobalVariableManager dvarManager = Stepper.getDynamicGlobalVariableManager();
+        if (dvarManager != null) {
+            dvarManager.removeVariableListener(variableRefreshListener);
+        }
+        if (sequenceManagerListener != null) {
+            sequenceManager.removeStepSequenceListener(sequenceManagerListener);
+            sequenceManagerListener = null;
+        }
     }
 
     private void attachSequenceListeners(StepSequence seq) {
+        registeredSequences.add(seq);
         for (com.xreous.stepperng.step.Step s : seq.getSteps()) {
             s.getVariableManager().addVariableListener(variableRefreshListener);
+            registeredVariableManagers.add(s.getVariableManager());
         }
-        seq.addStepListener(new com.xreous.stepperng.step.listener.StepAdapter() {
+        com.xreous.stepperng.step.listener.StepAdapter stepListener = new com.xreous.stepperng.step.listener.StepAdapter() {
             @Override
             public void onStepAdded(com.xreous.stepperng.step.Step step) {
                 step.getVariableManager().addVariableListener(variableRefreshListener);
+                registeredVariableManagers.add(step.getVariableManager());
             }
-        });
+        };
+        seq.addStepListener(stepListener);
+        registeredStepListeners.put(seq, stepListener);
     }
 
     private void scheduleRefresh() {
@@ -312,16 +356,6 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
             crossSequenceVars = this.sequenceManager.getRollingVariablesFromAllSequences();
         }
 
-        try {
-            Stepper.montoya.logging().logToOutput("Stepper-NG [ReplacementsTab] step=" + (this.step != null ? this.step.getTitle() : "null")
-                + ", inSeqEntries=" + inSequenceVars.size() + ", crossSeqEntries=" + crossSequenceVars.size());
-            for (Map.Entry<StepSequence, List<StepVariable>> e : crossSequenceVars.entrySet()) {
-                for (StepVariable v : e.getValue()) {
-                    Stepper.montoya.logging().logToOutput("  cross-seq: " + e.getKey().getTitle() + ":" + v.getIdentifier()
-                        + " published=" + v.isPublished() + " value=" + (v.getValuePreview() != null ? v.getValuePreview().substring(0, Math.min(30, v.getValuePreview().length())) : "null"));
-                }
-            }
-        } catch (Exception ignored) {}
 
         String contentString = new String(content);
         try {
@@ -377,10 +411,6 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
                 output = new StringBuffer();
                 Pattern pattern = StepVariable.createIdentifierPatternWithSequence(sequence, stepVariable);
 
-                try {
-                    Stepper.montoya.logging().logToOutput("  Trying cross-seq pattern: " + pattern.pattern()
-                        + " against content contains=" + contentToSearch.contains("$VAR:" + sequence.getTitle() + ":" + stepVariable.getIdentifier() + "$"));
-                } catch (Exception ignored) {}
 
                 String replacement = stepVariable.getValuePreview() != null ? stepVariable.getValuePreview() : "";
                 Matcher m = pattern.matcher(contentToSearch);

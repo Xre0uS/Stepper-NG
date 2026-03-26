@@ -1,5 +1,6 @@
 package com.xreous.stepperng.step.view;
 
+import burp.api.montoya.ui.editor.HttpResponseEditor;
 import com.xreous.stepperng.step.Step;
 import com.xreous.stepperng.util.AutoRegexDialog;
 import com.xreous.stepperng.util.dialog.VariableCreationDialog;
@@ -13,10 +14,16 @@ import java.awt.*;
 public class PostExecVariablePanel extends VariablePanel {
 
     private Step step;
+    private HttpResponseEditor responseEditor;
 
     public PostExecVariablePanel(VariableManager variableManager, Step step){
+        this(variableManager, step, null);
+    }
+
+    public PostExecVariablePanel(VariableManager variableManager, Step step, HttpResponseEditor responseEditor){
         super("Post-Execution Variables", variableManager);
         this.step = step;
+        this.responseEditor = responseEditor;
         // Table is created by super() before step is assigned, so set it now
         if (this.variableTable instanceof PostExecutionVariableTable postTable) {
             postTable.setStep(step);
@@ -67,10 +74,23 @@ public class PostExecVariablePanel extends VariablePanel {
         }
         String responseText = new String(responseBytes);
 
+        String preSelection = null;
+        int preSelOffset = -1;
+        if (responseEditor != null && responseEditor.selection().isPresent()) {
+            var selection = responseEditor.selection().get();
+            var range = selection.offsets();
+            int start = range.startIndexInclusive();
+            int end = range.endIndexExclusive();
+            if (start >= 0 && end > start && end <= responseBytes.length) {
+                preSelection = new String(responseBytes, start, end - start);
+                preSelOffset = start;
+            }
+        }
+
         AutoRegexDialog.Result result = AutoRegexDialog.show(
                 this, responseText,
                 "Auto-Generate Regex Variable", "response",
-                null, -1);
+                preSelection, preSelOffset);
 
         if (result != null && !result.regex.isEmpty()) {
             String varName = result.variableName.isEmpty()

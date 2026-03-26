@@ -87,7 +87,6 @@ public class StepCondition {
 
         boolean patternFound;
         if (type == ConditionType.STATUS_CODE) {
-            // Only convert the status line to String, not the entire response body
             int lineEnd = 0;
             for (int i = 0; i < responseBytes.length; i++) {
                 if (responseBytes[i] == '\r' || responseBytes[i] == '\n') { lineEnd = i; break; }
@@ -129,6 +128,10 @@ public class StepCondition {
     }
 
     public String getSummary() {
+        return getSummary(null);
+    }
+
+    public String getSummary(java.util.function.Function<String, String> stepIdResolver) {
         if (!isConfigured()) return "None";
         StringBuilder sb = new StringBuilder("If ");
         if (type == ConditionType.ALWAYS) {
@@ -141,17 +144,22 @@ public class StepCondition {
         }
         sb.append(" → ").append(action);
         if (action == ConditionFailAction.GOTO_STEP && gotoTarget != null && !gotoTarget.isEmpty()) {
-            sb.append(" (").append(gotoTarget).append(")");
+            sb.append(" (").append(resolveDisplay(gotoTarget, stepIdResolver)).append(")");
         }
-        // Retry is meaningless for "Always" — condition always triggers on the first attempt
         if (type != ConditionType.ALWAYS && retryCount > 0) sb.append(", retry ").append(retryCount).append("x");
         if (type != ConditionType.ALWAYS && elseAction != null && elseAction != ConditionFailAction.CONTINUE) {
             sb.append(", else ").append(elseAction);
             if (elseAction == ConditionFailAction.GOTO_STEP && elseGotoTarget != null && !elseGotoTarget.isEmpty()) {
-                sb.append(" (").append(elseGotoTarget).append(")");
+                sb.append(" (").append(resolveDisplay(elseGotoTarget, stepIdResolver)).append(")");
             }
         }
         return sb.toString();
+    }
+
+    private String resolveDisplay(String id, java.util.function.Function<String, String> resolver) {
+        if (resolver == null || id == null) return id != null ? id : "";
+        String resolved = resolver.apply(id);
+        return resolved != null ? resolved : id;
     }
 
     public ConditionType getType() { return type; }

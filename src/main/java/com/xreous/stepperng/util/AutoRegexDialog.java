@@ -11,8 +11,6 @@ import java.awt.event.KeyEvent;
 
 /**
  * Standalone auto-regex dialog that can be opened from any context.
- * Shows message content (request or response), lets the user highlight text
- * to auto-generate a regex, and provides copy/preview functionality.
  */
 public class AutoRegexDialog {
 
@@ -52,16 +50,14 @@ public class AutoRegexDialog {
         }
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
-        dialog.setMinimumSize(new Dimension(700, 500));
-        dialog.setSize(new Dimension(
-                Math.max(1200, (int) (screen.width * 0.6)),
-                Math.max(850, (int) (screen.height * 0.7))));
-        dialog.setLocationRelativeTo(parent);
+        dialog.setMinimumSize(new Dimension(600, 400));
+        int width = Math.min(Math.max(700, (int) (screen.width * 0.55)), screen.width - 100);
+        int height = Math.min(Math.max(500, (int) (screen.height * 0.65)), screen.height - 100);
+        dialog.setSize(new Dimension(width, height));
+        dialog.setLocationRelativeTo(null);
 
-        // Variable name field
         JTextField nameField = new JTextField(20);
 
-        // Message text area with line numbers
         JTextArea textArea = new JTextArea(messageText);
         textArea.setEditable(false);
         textArea.setLineWrap(true);
@@ -71,7 +67,6 @@ public class AutoRegexDialog {
         textScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         textScroll.setRowHeaderView(new LineNumberGutter(textArea));
 
-        // Search bar
         JPanel searchBar = new JPanel(new BorderLayout(4, 0));
         searchBar.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor("Separator.foreground")),
@@ -163,7 +158,6 @@ public class AutoRegexDialog {
             }
         });
 
-        // Regex field and preview
         JTextField regexField = new JTextField(60);
         regexField.setFont(editorFont);
 
@@ -198,7 +192,6 @@ public class AutoRegexDialog {
             public void changedUpdate(javax.swing.event.DocumentEvent e) { update(); }
         });
 
-        // Layout
         JPanel topRow = new JPanel(new BorderLayout(5, 5));
         topRow.add(new JLabel("Variable Name:"), BorderLayout.WEST);
         topRow.add(nameField, BorderLayout.CENTER);
@@ -260,7 +253,6 @@ public class AutoRegexDialog {
 
         dialog.setContentPane(contentPanel);
 
-        // Pre-select text if provided from Burp's editor selection
         if (preSelection != null && !preSelection.isEmpty() && preSelOffset >= 0) {
             SwingUtilities.invokeLater(() -> {
                 try {

@@ -31,9 +31,6 @@ public abstract class VariablePanel extends JPanel {
         this.setMinimumSize(new Dimension(200, 100));
     }
 
-    /**
-     * Override this to customize the control panel buttons.
-     */
     JPanel createControlPanel() {
         JPanel controlPanel = new JPanel(new GridLayout(1, 0));
         JButton addVariableButton = new JButton("Add Variable");
