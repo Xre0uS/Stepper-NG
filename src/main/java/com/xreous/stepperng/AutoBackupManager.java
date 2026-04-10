@@ -31,6 +31,24 @@ public class AutoBackupManager {
     private static final String BACKUP_PREFIX = "stepper-ng-backup-";
     private static final String BACKUP_SUFFIX = ".json";
 
+    private static String sanitizeForFilename(String name) {
+        if (name == null || name.isBlank()) return "unnamed";
+        String sanitized = name.replaceAll("[^a-zA-Z0-9._-]+", "-");
+        sanitized = sanitized.replaceAll("^-+|-+$", "");
+        if (sanitized.isEmpty()) return "unnamed";
+        if (sanitized.length() > 64) sanitized = sanitized.substring(0, 64);
+        return sanitized;
+    }
+
+    private String getProjectNameSlug() {
+        try {
+            String name = Stepper.montoya.project().name();
+            return sanitizeForFilename(name);
+        } catch (Exception e) {
+            return "unnamed";
+        }
+    }
+
     private final SequenceManager sequenceManager;
     private final DynamicGlobalVariableManager dynamicGlobalVariableManager;
     private final Preferences preferences;
@@ -130,7 +148,8 @@ public class AutoBackupManager {
         }
 
         String timestamp = TIMESTAMP_FMT.format(LocalDateTime.now());
-        String filename = BACKUP_PREFIX + timestamp + BACKUP_SUFFIX;
+        String projectSlug = getProjectNameSlug();
+        String filename = BACKUP_PREFIX + projectSlug + "-" + timestamp + BACKUP_SUFFIX;
         Path target = backupDir.resolve(filename);
 
         try {
@@ -158,11 +177,13 @@ public class AutoBackupManager {
         int maxFiles = getMaxFiles();
         if (maxFiles <= 0) return; // unlimited
 
+        String projectPrefix = BACKUP_PREFIX + getProjectNameSlug() + "-";
+
         try (Stream<Path> files = Files.list(backupDir)) {
             List<Path> backups = files
                     .filter(p -> {
                         String name = p.getFileName().toString();
-                        return name.startsWith(BACKUP_PREFIX) && name.endsWith(BACKUP_SUFFIX)
+                        return name.startsWith(projectPrefix) && name.endsWith(BACKUP_SUFFIX)
                                 && !name.endsWith(".tmp");
                     })
                     .sorted(Comparator.comparing(p -> p.getFileName().toString(), Comparator.reverseOrder()))
