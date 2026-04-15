@@ -440,4 +440,8 @@ public class SequenceContainer extends JPanel {
         if (selectedTab instanceof StepPanel sp) return sp;
         return null;
     }
+
+    public void refreshOverview() {
+        if (overviewPanel != null) overviewPanel.refresh();
+    }
 }

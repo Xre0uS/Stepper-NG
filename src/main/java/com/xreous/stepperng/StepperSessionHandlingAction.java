@@ -74,7 +74,7 @@ public class StepperSessionHandlingAction implements SessionHandlingAction {
                 boolean shouldValidate = (count % validateEveryN == 0);
 
                 for (StepSequence seq : autoExecSequences) {
-                    if (!MessageProcessor.isSequenceOnStack(seq.getTitle())
+                    if (!MessageProcessor.isSequenceOnStack(seq.getSequenceId())
                             && MessageProcessor.getStackDepth() < Globals.MAX_SEQUENCE_DEPTH) {
                         if (!seq.isExecuting() && shouldValidate) {
                             seq.executeBlocking();

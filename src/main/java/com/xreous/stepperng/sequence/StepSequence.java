@@ -12,6 +12,7 @@ import com.xreous.stepperng.exception.SequenceExecutionException;
 import com.xreous.stepperng.sequence.listener.SequenceExecutionListener;
 import com.xreous.stepperng.sequence.view.SequenceContainer;
 import com.xreous.stepperng.sequence.view.StepSequenceTab;
+import com.xreous.stepperng.sequencemanager.SequenceManager;
 import com.xreous.stepperng.step.Step;
 import com.xreous.stepperng.step.StepExecutionInfo;
 import com.xreous.stepperng.variable.PreExecutionStepVariable;
@@ -30,6 +31,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class StepSequence
 {
+    private String sequenceId;
     private String title;
     private volatile boolean isExecuting;
     private boolean disabled;
@@ -52,6 +54,7 @@ public class StepSequence
     private static final long HOLD_TIMEOUT_MS = 30_000;
 
     public StepSequence(String title){
+        this.sequenceId = UUID.randomUUID().toString();
         this.steps = new ArrayList<>();
         this.stepListeners = new ArrayList<>();
         this.globalVariablesManager = new GlobalVariableManager(this);
@@ -71,7 +74,7 @@ public class StepSequence
         if(this.isExecuting) return;
         if(this.disabled) return;
 
-        if (MessageProcessor.isSequenceOnStack(this.title)) {
+        if (MessageProcessor.isSequenceOnStack(this.sequenceId)) {
             Stepper.montoya.logging().logToError("Stepper-NG: Skipping sequence '" + this.title + "' - already on execution stack (cycle detected).");
             return;
         }
@@ -83,7 +86,7 @@ public class StepSequence
         boolean needsBrokenDialog = false;
         SequenceContainer brokenDialogContainer = null;
 
-        MessageProcessor.pushSequence(this.title);
+        MessageProcessor.pushSequence(this.sequenceId);
         try {
             synchronized (StepSequence.this) {
                 if (this.isExecuting) return;
@@ -398,7 +401,7 @@ public class StepSequence
     public void executeAsync(){
         Thread t = new Thread(this::executeBlocking);
         t.setDaemon(true);
-        t.setName("Stepper-NG-Exec-" + this.title);
+        t.setName("Stepper-NG-Exec-" + this.title + "-" + this.sequenceId.substring(0, 8));
         t.start();
     }
 
@@ -540,6 +543,14 @@ public class StepSequence
         this.title = title;
     }
 
+    public String getSequenceId() {
+        return sequenceId;
+    }
+
+    public void setSequenceId(String sequenceId) {
+        this.sequenceId = sequenceId;
+    }
+
     public boolean isDisabled() {
         return disabled;
     }
@@ -655,6 +666,8 @@ public class StepSequence
                     disabled = false;
                     lastBrokenDialogDismissedAt = System.currentTimeMillis();
                     showingBrokenDialog.set(false);
+                    SequenceManager sm = Stepper.getSequenceManager();
+                    if (sm != null) sm.sequenceModified(StepSequence.this);
                     if (!steps.isEmpty()) stepModified(steps.getFirst());
                 }
             });
@@ -689,6 +702,8 @@ public class StepSequence
                     disabled = false;
                     lastBrokenDialogDismissedAt = System.currentTimeMillis();
                     showingBrokenDialog.set(false);
+                    SequenceManager sm = Stepper.getSequenceManager();
+                    if (sm != null) sm.sequenceModified(StepSequence.this);
                     if (!steps.isEmpty()) stepModified(steps.getFirst());
                 }
             });

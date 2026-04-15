@@ -129,6 +129,11 @@ public class StateManager implements StepSequenceListener, StepListener, StepVar
     @Override public void onStepUpdated(Step step) { scheduleSaveSequences(); }
 
     @Override
+    public void onStepSequenceModified(StepSequence sequence) {
+        scheduleSaveSequences();
+    }
+
+    @Override
     public void onStepSequenceRemoved(StepSequence sequence) {
         sequence.removeStepListener(this);
         sequence.getGlobalVariableManager().removeVariableListener(this);

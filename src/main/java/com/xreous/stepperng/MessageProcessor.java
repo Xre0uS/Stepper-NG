@@ -195,7 +195,7 @@ public class MessageProcessor implements HttpHandler {
                 for (RequestSequenceInformation info : postExecSequences) {
                     Map<String, String> merged = new HashMap<>(standaloneArgs);
                     merged.putAll(info.arguments);
-                    serializedMap.put(info.sequence.getTitle(), merged);
+                    serializedMap.put(info.sequence.getSequenceId(), merged);
                 }
                 String serialized = GSON.toJson(serializedMap);
                 String existingNotes = annotations.notes() != null ? annotations.notes() : "";
@@ -237,7 +237,7 @@ public class MessageProcessor implements HttpHandler {
 
                     for (StepSequence seq : autoExecSequences) {
                         if (!alreadyExecuted.contains(seq)
-                                && !isSequenceOnStack(seq.getTitle())
+                                && !isSequenceOnStack(seq.getSequenceId())
                                 && getStackDepth() < Globals.MAX_SEQUENCE_DEPTH) {
                             if (!seq.isExecuting() && shouldValidate) {
                                 seq.executeBlocking();
@@ -475,17 +475,15 @@ public class MessageProcessor implements HttpHandler {
             Matcher nameMatcher = SEQUENCE_NAME_PATTERN.matcher(headerValue);
             if (!nameMatcher.find()) continue;
 
-            String sequenceName = nameMatcher.group(1).trim();
+            String sequenceNameOrId = nameMatcher.group(1).trim();
             Map<String, String> arguments = extractVariablesFromInfoString(headerValue);
 
-            Optional<StepSequence> execSequence = sequenceManager.getSequences().stream()
-                    .filter(sequence -> !sequence.isDisabled() && sequence.getTitle().equalsIgnoreCase(sequenceName))
-                    .findFirst();
+            Optional<StepSequence> execSequence = sequenceManager.findSequence(sequenceNameOrId);
 
             if (execSequence.isPresent())
                 execSequences.add(new RequestSequenceInformation(execSequence.get(), arguments));
             else
-                Stepper.montoya.logging().logToError("Stepper-NG: Could not find execution sequence named: \"" + sequenceName + "\".");
+                Stepper.montoya.logging().logToError("Stepper-NG: Could not find execution sequence: \"" + sequenceNameOrId + "\".");
         }
         return execSequences;
     }
@@ -527,24 +525,20 @@ public class MessageProcessor implements HttpHandler {
                 HashMap<String, HashMap<String, String>> allSequences = GSON.fromJson(serialized, mapType);
                 if (allSequences != null) {
                     for (Map.Entry<String, HashMap<String, String>> entry : allSequences.entrySet()) {
-                        String sequenceName = entry.getKey();
-                        Optional<StepSequence> execSequence = sequenceManager.getSequences().stream()
-                                .filter(sequence -> !sequence.isDisabled() && sequence.getTitle().equalsIgnoreCase(sequenceName))
-                                .findFirst();
+                        String sequenceIdOrName = entry.getKey();
+                        Optional<StepSequence> execSequence = sequenceManager.findSequence(sequenceIdOrName);
                         Map<String, String> variables = entry.getValue() != null ? entry.getValue() : new HashMap<>();
                         if (execSequence.isPresent())
                             execSequences.add(new RequestSequenceInformation(execSequence.get(), variables));
                         else
-                            Stepper.montoya.logging().logToError("Stepper-NG: Could not find execution sequence named: \"" + sequenceName + "\".");
+                            Stepper.montoya.logging().logToError("Stepper-NG: Could not find execution sequence: \"" + sequenceIdOrName + "\".");
                     }
                 }
             } catch (com.google.gson.JsonSyntaxException e) {
                 String[] parts = serialized.split(EXECUTE_AFTER_COMMENT_DELIMITER);
-                for (String sequenceName : parts) {
-                    if (sequenceName == null || sequenceName.trim().isEmpty()) continue;
-                    Optional<StepSequence> execSequence = sequenceManager.getSequences().stream()
-                            .filter(sequence -> !sequence.isDisabled() && sequence.getTitle().equalsIgnoreCase(sequenceName.trim()))
-                            .findFirst();
+                for (String sequenceNameOrId : parts) {
+                    if (sequenceNameOrId == null || sequenceNameOrId.trim().isEmpty()) continue;
+                    Optional<StepSequence> execSequence = sequenceManager.findSequence(sequenceNameOrId.trim());
                     if (execSequence.isPresent())
                         execSequences.add(new RequestSequenceInformation(execSequence.get(), new HashMap<>()));
                 }

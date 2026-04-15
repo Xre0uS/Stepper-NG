@@ -25,6 +25,10 @@ public class StepSequenceTab extends JPanel {
         return stepsContainer;
     }
 
+    public ControlPanel getControlPanel() {
+        return controlPanel;
+    }
+
     public StepPanel getSelectedStepPanel(){
         return stepsContainer.getSelectedStepPanel();
     }

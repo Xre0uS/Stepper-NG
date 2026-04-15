@@ -122,6 +122,18 @@ public class ControlPanel extends JPanel implements SequenceExecutionListener {
         add(executeButton, BorderLayout.CENTER);
         add(rightPanel, BorderLayout.EAST);
         this.stepSequence.addSequenceExecutionListener(this);
+        updateExecuteButtonState();
+    }
+
+    /**
+     * Refreshes all ControlPanel state (execute button + session status).
+     * Call from outside when the sequence's disabled state or other properties change.
+     */
+    public void refreshState() {
+        SwingUtilities.invokeLater(() -> {
+            updateExecuteButtonState();
+            updateSessionStatusLabel();
+        });
     }
 
     private void refreshValidationStepCombo() {

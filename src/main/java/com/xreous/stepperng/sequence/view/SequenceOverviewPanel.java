@@ -36,6 +36,7 @@ public class SequenceOverviewPanel extends JPanel {
     private final OverviewTableModel tableModel;
     private final JTable overviewTable;
     private final JLabel validationLabel;
+    private final JLabel sequenceTitleLabel;
     private final JButton disableButton;
     private final PublishedVarsTableModel publishedModel;
     private final JTable publishedTable;
@@ -48,17 +49,16 @@ public class SequenceOverviewPanel extends JPanel {
 
         JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         headerPanel.add(new JLabel("Sequence: "));
-        JLabel titleLabel = new JLabel(stepSequence.getTitle());
-        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(titleLabel);
+        sequenceTitleLabel = new JLabel(stepSequence.getTitle());
+        sequenceTitleLabel.setFont(sequenceTitleLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(sequenceTitleLabel);
         headerPanel.add(Box.createHorizontalStrut(10));
         disableButton = new JButton(stepSequence.isDisabled() ? "Enable Sequence" : "Disable Sequence");
         disableButton.addActionListener(e -> {
             stepSequence.setDisabled(!stepSequence.isDisabled());
             updateDisableButton();
-            if (!stepSequence.getSteps().isEmpty()) {
-                stepSequence.stepModified(stepSequence.getSteps().get(0));
-            }
+            SequenceManager sm = Stepper.getSequenceManager();
+            if (sm != null) sm.sequenceModified(stepSequence);
         });
         headerPanel.add(disableButton);
         headerPanel.add(Box.createHorizontalStrut(10));
@@ -258,6 +258,7 @@ public class SequenceOverviewPanel extends JPanel {
     }
 
     private void doRefresh() {
+        sequenceTitleLabel.setText(stepSequence.getTitle());
         updateValidationLabel();
         updateDisableButton();
         tableModel.fireTableDataChanged();

@@ -25,6 +25,7 @@ public class StepperUI {
     private final PopOutPanel popOutPanel;
     private final HashMap<StepSequence, StepSequenceTab> managerTabMap;
     private boolean hasUnseen = false;
+    private AWTEventListener shortcutListener;
 
     public StepperUI(SequenceManager sequenceManager, DynamicGlobalVariableManager dynamicVarManager){
         this.sequenceManager = sequenceManager;
@@ -47,20 +48,25 @@ public class StepperUI {
         this.tabbedPane.addTab("Preferences", new OptionsPanel(this.sequenceManager));
         this.tabbedPane.addTab("About", new AboutPanel());
 
-        InputMap im = this.tabbedPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK), "ExecuteSelectedSequence");
-        this.tabbedPane.getActionMap().put("ExecuteSelectedSequence", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (Stepper.getPreferences() != null
-                        && Boolean.TRUE.equals(Stepper.getPreferences().getSetting(Globals.PREF_ENABLE_SHORTCUT))) {
-                    StepSequenceTab selected = getSelectedStepSet();
-                    if (selected != null) {
-                        SwingUtilities.invokeLater(selected.getStepSequence()::executeAsync);
+        this.shortcutListener = event -> {
+            if (!(event instanceof KeyEvent ke)) return;
+            if (ke.getID() != KeyEvent.KEY_PRESSED) return;
+            if (ke.getKeyCode() == KeyEvent.VK_G
+                    && (ke.getModifiersEx() & (KeyEvent.CTRL_DOWN_MASK | KeyEvent.ALT_DOWN_MASK))
+                    == (KeyEvent.CTRL_DOWN_MASK | KeyEvent.ALT_DOWN_MASK)) {
+                try {
+                    if (Stepper.getPreferences() != null
+                            && Boolean.TRUE.equals(Stepper.getPreferences().getSetting(Globals.PREF_ENABLE_SHORTCUT))) {
+                        StepSequenceTab selected = getSelectedStepSet();
+                        if (selected != null) {
+                            ke.consume();
+                            SwingUtilities.invokeLater(selected.getStepSequence()::executeAsync);
+                        }
                     }
-                }
+                } catch (Exception ignored) {}
             }
-        });
+        };
+        Toolkit.getDefaultToolkit().addAWTEventListener(this.shortcutListener, AWTEvent.KEY_EVENT_MASK);
 
         this.popOutPanel = new PopOutPanel(Stepper.montoya, this.tabbedPane, "Stepper-NG");
 
@@ -96,6 +102,22 @@ public class StepperUI {
             public void onStepSequenceRemoved(StepSequence sequence) {
                 removeTabForSequence(sequence);
             }
+
+            @Override
+            public void onStepSequenceModified(StepSequence sequence) {
+                SwingUtilities.invokeLater(() -> {
+                    StepSequenceTab tab = managerTabMap.get(sequence);
+                    if (tab == null) return;
+                    int tabIdx = tabbedPane.indexOfComponent(tab);
+                    if (tabIdx < 0) return;
+                    Component tc = tabbedPane.getTabComponentAt(tabIdx);
+                    if (tc instanceof CustomTabComponent ctc) {
+                        updateSequenceTabTitle(sequence, ctc);
+                    }
+                    tab.getStepsContainer().refreshOverview();
+                    tab.getControlPanel().refreshState();
+                });
+            }
         });
     }
 
@@ -108,6 +130,7 @@ public class StepperUI {
         Consumer<String> onTitleChange = newTitle -> {
             String cleanTitle = newTitle.startsWith("⊘ ") ? newTitle.substring(2) : newTitle;
             sequence.setTitle(cleanTitle);
+            sequenceManager.sequenceModified(sequence);
             if (sequence.isDisabled()) {
                 int idx = tabbedPane.indexOfComponent(tab);
                 if (idx >= 0) {
@@ -144,6 +167,7 @@ public class StepperUI {
                     toggleItem.addActionListener(ae -> {
                         sequence.setDisabled(!isDisabled);
                         updateSequenceTabTitle(sequence, tabComponent);
+                        sequenceManager.sequenceModified(sequence);
                     });
                     popup.add(toggleItem);
 
@@ -355,5 +379,14 @@ public class StepperUI {
         if (tab == null) return false;
         int idx = tabbedPane.indexOfComponent(tab);
         return idx >= 0 && tabbedPane.getSelectedIndex() == idx;
+    }
+
+    public void dispose() {
+        if (shortcutListener != null) {
+            try {
+                Toolkit.getDefaultToolkit().removeAWTEventListener(shortcutListener);
+            } catch (Exception ignored) {}
+            shortcutListener = null;
+        }
     }
 }

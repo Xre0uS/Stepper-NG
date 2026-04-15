@@ -50,6 +50,9 @@ public class Stepper implements BurpExtension {
     public AutoBackupManager getAutoBackupManager() { return autoBackupManager; }
 
     public static void cleanup() {
+        if (ui != null) {
+            try { ui.dispose(); } catch (Exception ignored) {}
+        }
         ui = null;
         sequenceManager = null;
         dynamicGlobalVariableManager = null;

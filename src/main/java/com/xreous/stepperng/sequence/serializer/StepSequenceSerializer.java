@@ -18,6 +18,9 @@ public class StepSequenceSerializer implements JsonSerializer<StepSequence>, Jso
         String title = obj.get("title") != null ? obj.get("title").getAsString() : "Untitled Sequence";
         StepSequence stepSequence = new StepSequence(title);
         try {
+            if (obj.has("sequenceId") && !obj.get("sequenceId").isJsonNull()) {
+                stepSequence.setSequenceId(obj.get("sequenceId").getAsString());
+            }
             if (obj.has("disabled")) {
                 stepSequence.setDisabled(obj.get("disabled").getAsBoolean());
             }
@@ -71,6 +74,7 @@ public class StepSequenceSerializer implements JsonSerializer<StepSequence>, Jso
     @Override
     public JsonElement serialize(StepSequence src, Type typeOfSrc, JsonSerializationContext context) {
         JsonObject json = new JsonObject();
+        json.addProperty("sequenceId", src.getSequenceId());
         json.addProperty("title", src.getTitle());
         json.addProperty("disabled", src.isDisabled());
         if (src.getValidationStepId() != null) {

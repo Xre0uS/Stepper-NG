@@ -80,6 +80,16 @@ public class SequenceManager {
         }
     }
 
+    public void sequenceModified(StepSequence sequence) {
+        for (StepSequenceListener listener : this.sequenceListeners) {
+            try {
+                listener.onStepSequenceModified(sequence);
+            } catch (Exception e) {
+                Stepper.montoya.logging().logToError("Stepper-NG: Error notifying sequence listener: " + e.getMessage());
+            }
+        }
+    }
+
     public void addStepSequenceListener(StepSequenceListener listener){
         this.sequenceListeners.add(listener);
     }
@@ -90,6 +100,27 @@ public class SequenceManager {
 
     public List<StepSequence> getSequences() {
         return this.sequences;
+    }
+
+    /**
+     * Finds a non-disabled sequence by its sequenceId first, then falls back to
+     * case-insensitive title match. Returns empty if not found.
+     */
+    public Optional<StepSequence> findSequence(String idOrName) {
+        if (idOrName == null || idOrName.isEmpty()) return Optional.empty();
+        // Try by ID first
+        for (StepSequence seq : this.sequences) {
+            if (!seq.isDisabled() && idOrName.equals(seq.getSequenceId())) {
+                return Optional.of(seq);
+            }
+        }
+        // Fall back to title match
+        for (StepSequence seq : this.sequences) {
+            if (!seq.isDisabled() && seq.getTitle().equalsIgnoreCase(idOrName)) {
+                return Optional.of(seq);
+            }
+        }
+        return Optional.empty();
     }
 
     public HashMap<StepSequence, List<StepVariable>> getRollingVariablesFromAllSequences(){
