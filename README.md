@@ -1,6 +1,6 @@
 # Stepper-NG
 
-A multi-stage repeater extension for Burp Suite with dynamic variable extraction and automated session handling.
+A Burp Suite extension for chaining multi-step HTTP request sequences with automatic variable extraction, session management, and conditional logic. Define a login flow once, extract tokens with regex, and let Stepper-NG replay it transparently whenever Scanner, Intruder, or Repeater needs a fresh session.
 
 Examples & writeup: https://xreous.io/posts/stepper-ng/
 
