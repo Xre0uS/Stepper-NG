@@ -2,17 +2,18 @@ package com.xreous.stepperng.variable;
 
 import com.xreous.stepperng.variable.listener.StepVariableListener;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 public abstract class VariableManager {
+    // CoW so HTTP worker threads (passthrough sync, DVAR/GVAR replacement) can iterate
+    // while the EDT mutates via addVariable/removeVariable without CME.
     protected final List<StepVariable> variables;
     protected final List<StepVariableListener> variableListeners;
 
     public VariableManager(){
-        this.variables = new ArrayList<>();
+        this.variables = new CopyOnWriteArrayList<>();
         this.variableListeners = new CopyOnWriteArrayList<>();
     }
 

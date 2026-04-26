@@ -1,26 +1,36 @@
 # Stepper-NG
 
-A multi-stage repeater extension for Burp Suite with dynamic variable extraction and automated session handling.
+A Burp Suite extension for chaining multi-step HTTP request sequences with automatic variable extraction, session management, and conditional logic. Define a login flow once, extract tokens with regex, and let Stepper-NG replay it transparently whenever Scanner, Intruder, or Repeater needs a fresh session.
 
 Examples & writeup: https://xreous.io/posts/stepper-ng/
 
 > Based on [Stepper](https://github.com/CoreyD97/Stepper) by CoreyD97. Migrated to the Burp Montoya API and extended with new features.
 
+![Sequence overview page](images/overview.png)
+
+*Sequence overview - summarises every step's condition, action, and extracted variables, and lists the sequence's published variables.*
+
+![Step view with published variables and conditional logic](images/step.png)
+
+*Step view - request/response editors with the action toolbar, post-execution variables, and the conditional-step controls.*
+
+> UI refreshed for v2.3.0 with a master-detail tree view, new overview and step pages. If you preferred the classic tabbed UI, stay on the 2.2.x release line.
+
 ## Usage
 
 ### Quick Start
-1. Create a sequence - click `+`, double-click the tab to rename it.
-2. Add steps - click the `+` tab or right-click any request in Burp → Add to Stepper sequence.
+1. Create a sequence - click `+ Sequence` in the tree toolbar, right-click → Rename to retitle.
+2. Add steps - click `+ Step` or right-click any request in Burp → Add to Stepper sequence. Reorder by dragging step nodes; drag across sequences to move (with auto-rebind of `$VAR:` references).
 3. Extract variables - define a regex in the post-execution variable table (e.g., `"token":"(.*?)"` with identifier `jwt`). You can also highlight text in a response and click Auto Regex.
 4. Use variables - insert `$VAR:jwt$` in later steps. It gets replaced at execution time.
-5. Click Execute to run all steps in order.
+5. Click `Run all` (or `Run through here` for a partial run) to execute the sequence.
 
 ### Automatic Session Handling
 Stepper-NG can replace Burp's session handling rules + macros.
 
 1. Publish a variable - check the Published checkbox on a post-execution variable (e.g., `jwt` in `login-seq`).
 2. Reference it - use `$VAR:login-seq:jwt$` in Repeater, Intruder, or Scanner. Stepper-NG auto-executes the sequence when it detects the reference.
-3. Validation step - select one at the bottom of the sequence panel. If the condition fires (e.g., got 200), the session is valid and the rest is skipped. Otherwise, the full sequence runs.
+3. Validation step - right-click a step in the tree → "Set as Pre-Validation Step". If its condition fires (e.g., got 200), the session is valid and the rest is skipped. Otherwise, the full sequence runs.
 4. Throttle - set Validate every N requests in Preferences to reduce checks during scans.
 
 ### Variable Syntax
@@ -56,10 +66,10 @@ Condition types: Status line / Response body (match or not-match regex), or Alwa
 | Always | - | Skip remaining | *(hidden)* | Unconditionally stop |
 
 ### Session Validation
-Set a Validation Step on a sequence (dropdown at the bottom). It runs first when the sequence is triggered. If its condition fires, the session is valid and remaining steps are skipped. Otherwise, the full sequence runs.
+Right-click a step in the tree and choose "Set as Pre-Validation Step". It runs first when the sequence is triggered. If its condition fires, the session is valid and remaining steps are skipped. Otherwise, the full sequence runs.
 
 ### Post-Validation
-Set a Post-Validation Step to verify the session was actually recovered. After the main sequence completes, the post-validation step executes:
+Right-click a step and choose "Set as Post-Validation Step" to verify the session was actually recovered. After the main sequence completes, the post-validation step executes:
 - Condition triggers - session recovered, failure counter resets.
 - Condition doesn't trigger - failure counter increments.
 
@@ -87,6 +97,7 @@ Backup files use the same JSON format as manual Export, so they can be restored 
 - Stepper Replacements tab - previews all variable replacements with highlighting
 - Sequence Overview tab - summary of all steps with conditions, variables (✦ = published), and last result
 - Sequence arguments via `X-Stepper-Execute-Before: seq: var=val` or `X-Stepper-Argument: var=val` headers
+- Execute-before step ranges: `X-Stepper-Execute-Before: seq{N}` runs only steps 0..N of the named sequence (`seq{start:end}` also accepted)
 - Disable/enable individual steps or entire sequences via right-click
 - Import/export sequences as JSON
 - Infinite loop prevention with max nesting depth
@@ -146,6 +157,7 @@ If the extension sends requests with no variable references (literal stale token
 - Infinite loop prevention with max depth limit
 - Session handling action for Extensions scope
 - Performance optimizations for scanner/proxy workloads
+- Binary-safe variable replacement at the byte level - no UTF-8 round-trip, no corruption of binary request/response bodies, and the original "binary content" warning is gone
 - Fixed Content-Length update for Montoya API compatibility
 
 ## Building
@@ -179,6 +191,7 @@ Stepper-NG is designed for Burp's concurrent workloads (scanner, intruder, proxy
 - [CoreyD97](https://github.com/CoreyD97/Stepper) - Original Stepper extension
 - [Ratsch0k](https://github.com/C0DEbrained/Stepper/pull/79) - Sequence arguments & disable warning
 - [0xceba](https://github.com/0xceba/burp_variables) - Dynamic variables inspiration
+- [cutecatcat16/stepper](https://github.com/cutecatcat16/stepper) - UI redesign inspiration 
 
 ## Attribution
 

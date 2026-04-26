@@ -49,6 +49,13 @@ public class Stepper implements BurpExtension {
     public static boolean isDegradedMode() { return degradedMode; }
     public AutoBackupManager getAutoBackupManager() { return autoBackupManager; }
 
+    public static Component suiteFrame() {
+        try {
+            if (montoya != null) return montoya.userInterface().swingUtils().suiteFrame();
+        } catch (Exception ignored) {}
+        return ui != null ? ui.getUiComponent() : null;
+    }
+
     public static void cleanup() {
         if (ui != null) {
             try { ui.dispose(); } catch (Exception ignored) {}
@@ -108,6 +115,7 @@ public class Stepper implements BurpExtension {
                 api.logging().logToError("Stepper-NG: Failed to load saved data: " + getStackTrace(e));
             }
         }
+        com.xreous.stepperng.util.DuplicateNameWarning.warnImportSummary(null);
         this.messageProcessor = new MessageProcessor(sequenceManager, preferences, dynamicGlobalVariableManager);
 
         this.autoBackupManager = new AutoBackupManager(sequenceManager, dynamicGlobalVariableManager, preferences);
@@ -247,7 +255,7 @@ public class Stepper implements BurpExtension {
 
             String[] options = hasRecoveredData ? new String[]{"OK", "Export Now"} : new String[]{"OK"};
             int result = JOptionPane.showOptionDialog(
-                    ui != null ? ui.getUiComponent() : null,
+                    suiteFrame(),
                     message,
                     "Stepper-NG — Project File Corrupted",
                     JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
@@ -283,14 +291,14 @@ public class Stepper implements BurpExtension {
 
         JFileChooser fc = new JFileChooser();
         fc.setSelectedFile(new java.io.File("stepper-ng-recovery.json"));
-        if (fc.showSaveDialog(ui != null ? ui.getUiComponent() : null) == JFileChooser.APPROVE_OPTION) {
+        if (fc.showSaveDialog(suiteFrame()) == JFileChooser.APPROVE_OPTION) {
             try {
-                Files.write(fc.getSelectedFile().toPath(), json.getBytes());
-                JOptionPane.showMessageDialog(ui != null ? ui.getUiComponent() : null,
+                Files.write(fc.getSelectedFile().toPath(), json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                JOptionPane.showMessageDialog(suiteFrame(),
                         "Data exported successfully to:\n" + fc.getSelectedFile().getAbsolutePath(),
                         "Export Complete", JOptionPane.INFORMATION_MESSAGE);
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(ui != null ? ui.getUiComponent() : null,
+                JOptionPane.showMessageDialog(suiteFrame(),
                         "Failed to write file: " + ex.getMessage(),
                         "Export Failed", JOptionPane.ERROR_MESSAGE);
             }

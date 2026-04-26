@@ -107,8 +107,6 @@ public class StepperPreferenceFactory extends PreferenceFactory {
         prefs.registerSetting(Globals.PREF_VARS_IN_INTRUDER, Boolean.class, true, Preferences.Visibility.GLOBAL);
         prefs.registerSetting(Globals.PREF_VARS_IN_SCANNER, Boolean.class, true, Preferences.Visibility.GLOBAL);
         prefs.registerSetting(Globals.PREF_UPDATE_REQUEST_LENGTH, Boolean.class, true, Preferences.Visibility.GLOBAL);
-        prefs.registerSetting(Globals.PREF_ENABLE_SHORTCUT, Boolean.class, true, Preferences.Visibility.GLOBAL);
-        prefs.registerSetting(Globals.PREF_ENABLE_UNPROCESSABLE_WARNING, Boolean.class, true, Preferences.Visibility.GLOBAL);
         prefs.registerSetting(Globals.PREF_SESSION_VALIDATE_EVERY_N, Integer.class, 1, Preferences.Visibility.GLOBAL);
         prefs.registerSetting(Globals.PREF_PAUSE_ON_POST_VALIDATION_FAIL, Boolean.class, true, Preferences.Visibility.GLOBAL);
         prefs.registerSetting(Globals.PREF_HOLD_REQUESTS_DURING_EXECUTION, Boolean.class, false, Preferences.Visibility.GLOBAL);

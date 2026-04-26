@@ -11,6 +11,10 @@ public class StepVariableManager extends VariableManager {
         this.step = step;
     }
 
+    public Step getStep() {
+        return step;
+    }
+
     public void updateVariablesBeforeExecution(){
         for (StepVariable variable : this.variables) {
             if(variable instanceof PreExecutionStepVariable)

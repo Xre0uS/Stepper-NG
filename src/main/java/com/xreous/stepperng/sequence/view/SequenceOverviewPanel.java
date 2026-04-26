@@ -12,6 +12,7 @@ import com.xreous.stepperng.variable.PreExecutionStepVariable;
 import com.xreous.stepperng.variable.RegexVariable;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.listener.StepVariableListener;
+import com.xreous.stepperng.util.view.Themes;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -65,12 +66,29 @@ public class SequenceOverviewPanel extends JPanel {
         validationLabel = new JLabel();
         updateValidationLabel();
         headerPanel.add(validationLabel);
+        headerPanel.add(Box.createHorizontalStrut(10));
+        headerPanel.add(new JLabel("Max post-validation fails:"));
+        JSpinner maxFailsSpinner = new JSpinner(
+                new SpinnerNumberModel(Math.max(1, stepSequence.getMaxConsecutiveFailures()), 1, 100, 1));
+        maxFailsSpinner.setToolTipText(
+                "Pause task execution / alert after this many consecutive post-validation failures.");
+        maxFailsSpinner.addChangeListener(ce -> {
+            int v = (int) maxFailsSpinner.getValue();
+            if (v != stepSequence.getMaxConsecutiveFailures()) {
+                stepSequence.setMaxConsecutiveFailures(v);
+                SequenceManager sm = Stepper.getSequenceManager();
+                if (sm != null) sm.sequenceModified(stepSequence);
+            }
+        });
+        headerPanel.add(maxFailsSpinner);
 
         this.tableModel = new OverviewTableModel();
         this.overviewTable = new JTable(tableModel);
         overviewTable.setRowHeight(overviewTable.getFontMetrics(overviewTable.getFont()).getHeight() + 10);
         overviewTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+        overviewTable.getTableHeader().setReorderingAllowed(false);
         overviewTable.setDefaultRenderer(Object.class, new OverviewCellRenderer());
+        packOverviewColumns();
 
         overviewTable.addMouseListener(new MouseAdapter() {
             @Override
@@ -80,7 +98,7 @@ public class SequenceOverviewPanel extends JPanel {
         });
 
         JScrollPane stepsScroll = new JScrollPane(overviewTable,
-                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
         JPanel publishedPanel = new JPanel(new BorderLayout(0, 4));
         publishedPanel.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
@@ -90,7 +108,7 @@ public class SequenceOverviewPanel extends JPanel {
         publishedTitle.setFont(publishedTitle.getFont().deriveFont(Font.BOLD));
         publishedHeader.add(publishedTitle, BorderLayout.WEST);
         conflictLabel = new JLabel();
-        conflictLabel.setForeground(new Color(200, 120, 0));
+        conflictLabel.setForeground(Themes.warningForeground(conflictLabel));
         conflictLabel.setFont(conflictLabel.getFont().deriveFont(Font.ITALIC, conflictLabel.getFont().getSize2D() - 1f));
         publishedHeader.add(conflictLabel, BorderLayout.CENTER);
         publishedHeader.setBorder(BorderFactory.createEmptyBorder(0, 4, 2, 0));
@@ -120,12 +138,13 @@ public class SequenceOverviewPanel extends JPanel {
 
         JScrollPane publishedScroll = new JScrollPane(publishedTable,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        publishedScroll.setPreferredSize(new Dimension(0, 120));
         publishedPanel.add(publishedScroll, BorderLayout.CENTER);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, stepsScroll, publishedPanel);
-        splitPane.setResizeWeight(0.7);
+        splitPane.setResizeWeight(0.45);
         splitPane.setDividerSize(5);
+        com.xreous.stepperng.util.view.SplitPaneDoubleClick.install(splitPane,
+                () -> splitPane.setDividerLocation(0.5d));
 
         add(headerPanel, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
@@ -144,7 +163,7 @@ public class SequenceOverviewPanel extends JPanel {
         }
 
         refresh();
-        SwingUtilities.invokeLater(() -> { packTableColumns(overviewTable); packTableColumns(publishedTable); });
+        SwingUtilities.invokeLater(() -> packTableColumns(publishedTable));
 
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0
@@ -265,7 +284,40 @@ public class SequenceOverviewPanel extends JPanel {
         publishedModel.reload();
         publishedModel.fireTableDataChanged();
         updateConflictWarning();
-        SwingUtilities.invokeLater(() -> { packTableColumns(overviewTable); packTableColumns(publishedTable); });
+        int rows = Math.max(3, publishedModel.getRowCount());
+        int header = publishedTable.getTableHeader() != null ? publishedTable.getTableHeader().getPreferredSize().height : 22;
+        publishedTable.setPreferredScrollableViewportSize(
+                new Dimension(0, rows * publishedTable.getRowHeight() + header + 4));
+        SwingUtilities.invokeLater(() -> { packOverviewColumns(); packTableColumns(publishedTable); });
+    }
+
+    private void packOverviewColumns() {
+        if (overviewTable.getColumnCount() == 0) return;
+        TableColumnModel cm = overviewTable.getColumnModel();
+        FontMetrics fm = overviewTable.getFontMetrics(overviewTable.getFont());
+        int em = Math.max(1, fm.charWidth('M'));
+        int pad = em * 2;
+        int[] caps = {0, 9, 18, 22, 28, 22, 18, 0};
+        int[] weight = {3, 8, 14, 16, 18, 14, 12, 30};
+        for (int col = 0; col < cm.getColumnCount() && col < caps.length; col++) {
+            int headerW = fm.stringWidth(overviewTable.getColumnName(col)) + pad;
+            int contentW = headerW;
+            for (int row = 0; row < overviewTable.getRowCount(); row++) {
+                Object v = overviewTable.getValueAt(row, col);
+                if (v != null) contentW = Math.max(contentW, fm.stringWidth(v.toString()) + pad);
+            }
+            int capPx = caps[col] > 0 ? caps[col] * em : Integer.MAX_VALUE;
+            int pref = Math.min(contentW, capPx);
+            TableColumn c = cm.getColumn(col);
+            c.setMinWidth(Math.min(headerW, pref));
+            c.setPreferredWidth(Math.max(pref, weight[col] * em));
+            c.setMaxWidth(capPx);
+        }
+        int hashW = fm.stringWidth("99") + em;
+        TableColumn first = cm.getColumn(0);
+        first.setMinWidth(hashW);
+        first.setPreferredWidth(hashW);
+        first.setMaxWidth(hashW);
     }
 
     private void packTableColumns(JTable table) {
@@ -442,7 +494,7 @@ public class SequenceOverviewPanel extends JPanel {
             if (!isSelected) {
                 c.setBackground(table.getBackground());
                 if (r.variable.isPublished()) {
-                    c.setForeground(new Color(0, 128, 0));
+                    c.setForeground(Themes.successForeground(table));
                 } else {
                     c.setForeground(table.getForeground());
                 }
@@ -450,7 +502,7 @@ public class SequenceOverviewPanel extends JPanel {
             if (column == 4 && !isSelected) {
                 String val = r.variable.getValue();
                 if (val == null || val.isEmpty()) {
-                    c.setForeground(UIManager.getColor("Label.disabledForeground"));
+                    c.setForeground(Themes.disabledForeground(table));
                 }
             }
             return c;
@@ -578,22 +630,22 @@ public class SequenceOverviewPanel extends JPanel {
             Step step = stepSequence.getSteps().get(row);
             if (!isSelected) {
                 if (!step.isEnabled()) {
-                    c.setForeground(UIManager.getColor("Label.disabledForeground"));
+                    c.setForeground(Themes.disabledForeground(table));
                 } else {
                     c.setForeground(table.getForeground());
                 }
                 if (step.getStepId().equals(stepSequence.getValidationStepId())
                         || step.getStepId().equals(stepSequence.getPostValidationStepId())) {
-                    c.setBackground(new Color(70, 130, 180, 30));
+                    c.setBackground(Themes.rowHighlightTint(table));
                 } else {
                     c.setBackground(table.getBackground());
                 }
             }
             if (column == 1) {
                 if ("Disabled".equals(value)) {
-                    c.setForeground(isSelected ? c.getForeground() : new Color(180, 80, 80));
+                    c.setForeground(isSelected ? c.getForeground() : Themes.errorForeground(table));
                 } else if (!isSelected) {
-                    c.setForeground(new Color(80, 160, 80));
+                    c.setForeground(Themes.successForeground(table));
                 }
             }
             return c;

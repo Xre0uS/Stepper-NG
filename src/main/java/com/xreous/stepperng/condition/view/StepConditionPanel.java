@@ -3,6 +3,9 @@ package com.xreous.stepperng.condition.view;
 import com.xreous.stepperng.condition.ConditionFailAction;
 import com.xreous.stepperng.condition.StepCondition;
 import com.xreous.stepperng.step.Step;
+import com.xreous.stepperng.step.view.StepRef;
+import com.xreous.stepperng.util.view.Themes;
+import com.xreous.stepperng.util.view.WrapLayout;
 
 import javax.swing.*;
 import java.awt.*;
@@ -15,25 +18,27 @@ public class StepConditionPanel extends JPanel {
     private final JTextField patternField;
     private final JComboBox<StepCondition.MatchMode> matchModeCombo;
     private final JComboBox<ConditionFailAction> actionCombo;
-    private final JComboBox<String> gotoCombo;
+    private final JComboBox<StepRef> gotoCombo;
     private final JSpinner retrySpinner;
     private final JSpinner delaySpinner;
-    private boolean collapsed = true;
-    private final JPanel contentPanel;
-    private final JButton toggleButton;
-    private boolean updating = false;
+    private final JComboBox<ConditionFailAction> elseActionCombo;
+    private final JComboBox<StepRef> elseGotoCombo;
+
     private final JLabel validationHint;
     private final JLabel retryLabel;
     private final JLabel delayLabel;
     private final JLabel msLabel;
     private final JLabel thenLabel;
     private final JLabel elseLabel;
-    private final JComboBox<ConditionFailAction> elseActionCombo;
-    private final JComboBox<String> elseGotoCombo;
+
+    private boolean updating = false;
 
     public StepConditionPanel(Step step) {
-        super(new BorderLayout());
+        super(new WrapLayout(FlowLayout.LEFT, 4, 2));
         this.step = step;
+        setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Themes.lineColor(this)),
+                BorderFactory.createEmptyBorder(2, 2, 4, 2)));
 
         StepCondition cond = step.getCondition();
         if (cond == null) cond = new StepCondition();
@@ -52,9 +57,8 @@ public class StepConditionPanel extends JPanel {
         actionCombo.setSelectedItem(cond.getAction());
 
         gotoCombo = new JComboBox<>();
-        gotoCombo.setRenderer(new StepIdHidingRenderer());
-        refreshStepCombo(gotoCombo);
-        selectStepInComboById(gotoCombo, cond.getGotoTarget());
+        gotoCombo.setRenderer(new StepRef.Renderer());
+        rebuildGotoCombo(gotoCombo, cond.getGotoTarget());
 
         retrySpinner = new JSpinner(new SpinnerNumberModel(cond.getRetryCount(), 0, 20, 1));
         delaySpinner = new JSpinner(new SpinnerNumberModel((int) cond.getRetryDelayMs(), 0, 30000, 100));
@@ -63,15 +67,14 @@ public class StepConditionPanel extends JPanel {
         elseActionCombo.setSelectedItem(cond.getElseAction());
 
         elseGotoCombo = new JComboBox<>();
-        elseGotoCombo.setRenderer(new StepIdHidingRenderer());
-        refreshStepCombo(elseGotoCombo);
-        selectStepInComboById(elseGotoCombo, cond.getElseGotoTarget());
+        elseGotoCombo.setRenderer(new StepRef.Renderer());
+        rebuildGotoCombo(elseGotoCombo, cond.getElseGotoTarget());
 
         Runnable applyAndUpdate = () -> {
             if (updating) return;
             updateFieldVisibility();
-            String gotoTarget = extractStepId((String) gotoCombo.getSelectedItem());
-            String elseGotoTarget = extractStepId((String) elseGotoCombo.getSelectedItem());
+            String gotoTarget = selectedStepId(gotoCombo);
+            String elseGotoTarget = selectedStepId(elseGotoCombo);
             StepCondition c = new StepCondition(
                     (StepCondition.ConditionType) typeCombo.getSelectedItem(),
                     patternField.getText(),
@@ -100,63 +103,42 @@ public class StepConditionPanel extends JPanel {
         elseActionCombo.addActionListener(e -> applyAndUpdate.run());
         elseGotoCombo.addActionListener(e -> applyAndUpdate.run());
 
-        contentPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-
-        contentPanel.add(new JLabel("If"));
-        contentPanel.add(typeCombo);
-        contentPanel.add(matchModeCombo);
-        contentPanel.add(patternField);
-
-        retryLabel = new JLabel(", retry");
-        contentPanel.add(retryLabel);
-        contentPanel.add(retrySpinner);
-        delayLabel = new JLabel("×");
-        contentPanel.add(delayLabel);
-        contentPanel.add(delaySpinner);
-        msLabel = new JLabel("ms");
-        contentPanel.add(msLabel);
-
-        thenLabel = new JLabel(", then");
-        contentPanel.add(thenLabel);
-        contentPanel.add(actionCombo);
-        contentPanel.add(gotoCombo);
-
+        JLabel header = new JLabel("Condition: ");
+        header.setFont(header.getFont().deriveFont(Font.BOLD));
+        add(header);
+        add(new JLabel("If"));
+        add(typeCombo);
+        add(matchModeCombo);
+        add(patternField);
+        thenLabel = new JLabel("Then");
+        add(thenLabel);
+        add(actionCombo);
+        add(gotoCombo);
         elseLabel = new JLabel(", else");
-        contentPanel.add(elseLabel);
-        contentPanel.add(elseActionCombo);
-        contentPanel.add(elseGotoCombo);
+        add(elseLabel);
+        add(elseActionCombo);
+        add(elseGotoCombo);
+        retryLabel = new JLabel(", retry");
+        add(retryLabel);
+        add(retrySpinner);
+        delayLabel = new JLabel("every");
+        add(delayLabel);
+        add(delaySpinner);
+        msLabel = new JLabel("ms");
+        add(msLabel);
 
         validationHint = new JLabel("  (validation step - action ignored)");
         validationHint.setFont(validationHint.getFont().deriveFont(Font.ITALIC));
-        validationHint.setForeground(UIManager.getColor("Label.disabledForeground"));
+        validationHint.setForeground(Themes.disabledForeground(validationHint));
         validationHint.setVisible(false);
-        contentPanel.add(validationHint);
+        add(validationHint);
 
         updateFieldVisibility();
-
-        boolean hasCondition = step.getCondition() != null && step.getCondition().isConfigured();
-        collapsed = !hasCondition;
-
-        toggleButton = new JButton(collapsed ? "▶ Condition" : "▼ Condition");
-        toggleButton.setBorderPainted(false);
-        toggleButton.setContentAreaFilled(false);
-        toggleButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        toggleButton.setFocusPainted(false);
-        toggleButton.setHorizontalAlignment(SwingConstants.LEFT);
-        toggleButton.addActionListener(e -> {
-            collapsed = !collapsed;
-            contentPanel.setVisible(!collapsed);
-            toggleButton.setText(collapsed ? "▶ Condition" : "▼ Condition");
-        });
-
-        contentPanel.setVisible(!collapsed);
-
-        add(toggleButton, BorderLayout.NORTH);
-        add(contentPanel, BorderLayout.CENTER);
 
         updating = false;
         updateValidationStepState();
     }
+
 
     private boolean isValidationStep() {
         if (step.getSequence() == null) return false;
@@ -200,8 +182,8 @@ public class StepConditionPanel extends JPanel {
         StepCondition cond = step.getCondition();
         String currentGotoId = cond != null ? cond.getGotoTarget() : "";
         String currentElseGotoId = cond != null ? cond.getElseGotoTarget() : "";
-        refreshStepCombo(gotoCombo, currentGotoId);
-        refreshStepCombo(elseGotoCombo, currentElseGotoId);
+        rebuildGotoCombo(gotoCombo, currentGotoId);
+        rebuildGotoCombo(elseGotoCombo, currentElseGotoId);
     }
 
     private void updateFieldVisibility() {
@@ -221,7 +203,7 @@ public class StepConditionPanel extends JPanel {
         delaySpinner.setVisible(showDelay);
         msLabel.setVisible(showDelay);
 
-        thenLabel.setText(isAlways ? "→" : ", then");
+        thenLabel.setText(isAlways ? "→" : "Then");
 
         boolean showElse = !isAlways;
         elseLabel.setVisible(showElse);
@@ -229,87 +211,41 @@ public class StepConditionPanel extends JPanel {
         boolean showElseGoto = showElse && elseActionCombo.getSelectedItem() == ConditionFailAction.GOTO_STEP;
         elseGotoCombo.setVisible(showElseGoto);
 
-        contentPanel.revalidate();
-        contentPanel.repaint();
+        revalidate();
+        repaint();
     }
 
-    private static final String ID_PREFIX = " [";
-    private static final String ID_SUFFIX = "]";
-
-    private void refreshStepCombo(JComboBox<String> combo, String selectedStepId) {
+    private void rebuildGotoCombo(JComboBox<StepRef> combo, String selectedStepIdOrTitle) {
         boolean wasUpdating = updating;
         updating = true;
-        combo.removeAllItems();
-        combo.addItem("(Select step)");
-        if (step.getSequence() != null) {
-            List<Step> steps = step.getSequence().getSteps();
-            for (int i = 0; i < steps.size(); i++) {
-                Step s = steps.get(i);
-                if (s == step) continue;
-                combo.addItem("Step " + (i + 1) + ": " + s.getTitle() + ID_PREFIX + s.getStepId() + ID_SUFFIX);
+        try {
+            combo.removeAllItems();
+            combo.addItem(StepRef.NONE_GOTO);
+            StepRef toSelect = StepRef.NONE_GOTO;
+            if (step.getSequence() != null) {
+                List<Step> siblings = step.getSequence().getSteps();
+                for (int i = 0; i < siblings.size(); i++) {
+                    Step s = siblings.get(i);
+                    if (s == step) continue;
+                    StepRef ref = new StepRef(s, i + 1);
+                    combo.addItem(ref);
+                    if (selectedStepIdOrTitle != null && !selectedStepIdOrTitle.isEmpty()
+                            && (selectedStepIdOrTitle.equals(s.getStepId())
+                                || selectedStepIdOrTitle.equalsIgnoreCase(s.getTitle()))) {
+                        toSelect = ref;
+                    }
+                }
             }
-        }
-        selectStepInComboById(combo, selectedStepId);
-        updating = wasUpdating;
-    }
-
-    /** For backward compat: also accept refreshStepCombo without an explicit ID (uses condition's stored ID) */
-    private void refreshStepCombo(JComboBox<String> combo) {
-        StepCondition cond = step.getCondition();
-        String id = "";
-        if (cond != null) {
-            id = (combo == gotoCombo) ? cond.getGotoTarget() : cond.getElseGotoTarget();
-        }
-        refreshStepCombo(combo, id);
-    }
-
-    private void selectStepInComboById(JComboBox<String> combo, String stepId) {
-        if (stepId == null || stepId.isEmpty()) return;
-        for (int i = 1; i < combo.getItemCount(); i++) {
-            String itemId = extractStepId(combo.getItemAt(i));
-            if (itemId != null && itemId.equals(stepId)) {
-                combo.setSelectedIndex(i);
-                return;
-            }
-        }
-        for (int i = 1; i < combo.getItemCount(); i++) {
-            String itemTitle = extractStepTitle(combo.getItemAt(i));
-            if (itemTitle.equalsIgnoreCase(stepId)) {
-                combo.setSelectedIndex(i);
-                return;
-            }
+            combo.setSelectedItem(toSelect);
+        } finally {
+            updating = wasUpdating;
         }
     }
 
-    private String extractStepId(String comboItem) {
-        if (comboItem == null) return null;
-        int start = comboItem.lastIndexOf(ID_PREFIX);
-        int end = comboItem.lastIndexOf(ID_SUFFIX);
-        if (start >= 0 && end > start) {
-            return comboItem.substring(start + ID_PREFIX.length(), end);
-        }
+    private static String selectedStepId(JComboBox<StepRef> combo) {
+        Object sel = combo.getSelectedItem();
+        if (sel instanceof StepRef r) return r.getStepId();
         return null;
-    }
-
-    private String extractStepTitle(String comboItem) {
-        if (comboItem == null) return "";
-        int idStart = comboItem.lastIndexOf(ID_PREFIX);
-        String withoutId = idStart >= 0 ? comboItem.substring(0, idStart) : comboItem;
-        int colonIdx = withoutId.indexOf(": ");
-        return colonIdx >= 0 ? withoutId.substring(colonIdx + 2).trim() : withoutId.trim();
-    }
-
-    private class StepIdHidingRenderer extends DefaultListCellRenderer {
-        @Override
-        public Component getListCellRendererComponent(JList<?> list, Object value,
-                                                      int index, boolean isSelected, boolean cellHasFocus) {
-            String display = value != null ? value.toString() : "";
-            int idStart = display.lastIndexOf(ID_PREFIX);
-            if (idStart >= 0) {
-                display = display.substring(0, idStart);
-            }
-            return super.getListCellRendererComponent(list, display, index, isSelected, cellHasFocus);
-        }
     }
 }
 

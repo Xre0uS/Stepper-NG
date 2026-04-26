@@ -5,13 +5,12 @@ import burp.api.montoya.burpsuite.TaskExecutionEngine;
 import com.xreous.stepperng.Globals;
 import com.xreous.stepperng.MessageProcessor;
 import com.xreous.stepperng.Stepper;
+import com.xreous.stepperng.StepperUI;
 import com.xreous.stepperng.condition.ConditionFailAction;
 import com.xreous.stepperng.condition.StepCondition;
 import com.xreous.stepperng.exception.SequenceCancelledException;
 import com.xreous.stepperng.exception.SequenceExecutionException;
 import com.xreous.stepperng.sequence.listener.SequenceExecutionListener;
-import com.xreous.stepperng.sequence.view.SequenceContainer;
-import com.xreous.stepperng.sequence.view.StepSequenceTab;
 import com.xreous.stepperng.sequencemanager.SequenceManager;
 import com.xreous.stepperng.step.Step;
 import com.xreous.stepperng.step.StepExecutionInfo;
@@ -19,12 +18,12 @@ import com.xreous.stepperng.variable.PreExecutionStepVariable;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.VariableManager;
 import com.xreous.stepperng.step.listener.StepListener;
-import com.xreous.stepperng.step.view.StepPanel;
 
 import javax.swing.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -34,14 +33,13 @@ public class StepSequence
     private String sequenceId;
     private String title;
     private volatile boolean isExecuting;
-    private boolean disabled;
-    private VariableManager globalVariablesManager;
+    private volatile boolean disabled;
     private ArrayList<Step> steps;
     private String validationStepId;
     private String postValidationStepId;
     private int maxConsecutiveFailures = Globals.DEFAULT_MAX_CONSECUTIVE_FAILURES;
-    private final ArrayList<StepListener> stepListeners;
-    private final ArrayList<SequenceExecutionListener> sequenceExecutionListeners;
+    private final CopyOnWriteArrayList<StepListener> stepListeners;
+    private final CopyOnWriteArrayList<SequenceExecutionListener> sequenceExecutionListeners;
 
     private transient int consecutiveFailures = 0;
     private transient final AtomicBoolean showingBrokenDialog = new AtomicBoolean(false);
@@ -56,9 +54,8 @@ public class StepSequence
     public StepSequence(String title){
         this.sequenceId = UUID.randomUUID().toString();
         this.steps = new ArrayList<>();
-        this.stepListeners = new ArrayList<>();
-        this.globalVariablesManager = new GlobalVariableManager(this);
-        this.sequenceExecutionListeners = new ArrayList<>();
+        this.stepListeners = new CopyOnWriteArrayList<>();
+        this.sequenceExecutionListeners = new CopyOnWriteArrayList<>();
         this.title = title;
     }
 
@@ -67,10 +64,244 @@ public class StepSequence
     }
 
     public void executeBlocking(){
-        executeBlocking(new HashMap<>());
+        executeBlocking(new HashMap<>(), false);
+    }
+
+    public void executeThroughStep(Step target) {
+        if (target == null || this.isExecuting || this.disabled) return;
+        int targetIdx = this.steps.indexOf(target);
+        if (targetIdx < 0) return;
+
+        if (MessageProcessor.isSequenceOnStack(this.sequenceId)) return;
+        if (MessageProcessor.getStackDepth() >= Globals.MAX_SEQUENCE_DEPTH) return;
+
+        MessageProcessor.pushSequence(this.sequenceId);
+        try {
+            synchronized (this) {
+                if (this.isExecuting || this.disabled) return;
+                this.isExecuting = true;
+                StepperUI.ExecutionHost host = null;
+                try {
+                    host = Stepper.getUI() != null ? Stepper.getUI().getExecutionHost(this) : null;
+                    if (host != null) host.beginExecution();
+                    for (SequenceExecutionListener l : this.sequenceExecutionListeners) {
+                        try { l.beforeSequenceStart(this.steps.subList(0, targetIdx + 1)); }
+                        catch (Exception ex) { Stepper.montoya.logging().logToError("Stepper-NG: listener failed: " + ex.getMessage()); }
+                    }
+                    runConditionalLoop(targetIdx, host);
+                } finally {
+                    for (SequenceExecutionListener l : this.sequenceExecutionListeners) {
+                        try { l.afterSequenceEnd(true); }
+                        catch (Exception ex) { Stepper.montoya.logging().logToError("Stepper-NG: listener failed: " + ex.getMessage()); }
+                    }
+                    if (host != null) {
+                        try { host.endExecution(); } catch (Exception ignored) {}
+                    }
+                }
+            }
+        } finally {
+            MessageProcessor.popSequence();
+            this.isExecuting = false;
+            executionLock.lock();
+            try { executionDone.signalAll(); } finally { executionLock.unlock(); }
+        }
+    }
+
+    public void executeStepBlocking(Step target) {
+        if (target == null || this.isExecuting || this.disabled) return;
+        if (this.steps.indexOf(target) < 0) return;
+        if (MessageProcessor.isSequenceOnStack(this.sequenceId)) return;
+
+        MessageProcessor.pushSequence(this.sequenceId);
+        try {
+            synchronized (this) {
+                if (this.isExecuting || this.disabled) return;
+                this.isExecuting = true;
+                StepperUI.ExecutionHost host = null;
+                try {
+                    host = Stepper.getUI() != null ? Stepper.getUI().getExecutionHost(this) : null;
+                    if (host != null) {
+                        host.beginExecution();
+                        host.setActive(target);
+                        byte[] live = host.liveRequestBytes(target);
+                        if (live != null && live.length > 0) target.setRequestBody(live);
+                    }
+                    for (SequenceExecutionListener l : this.sequenceExecutionListeners) {
+                        try { l.beforeSequenceStart(java.util.Collections.singletonList(target)); }
+                        catch (Exception ex) { Stepper.montoya.logging().logToError("Stepper-NG: listener failed: " + ex.getMessage()); }
+                    }
+                    try {
+                        List<StepVariable> rolling = getRollingVariablesUpToStep(target);
+                        StepExecutionInfo info = target.executeStep(rolling);
+                        target.setLastExecutionTime(System.currentTimeMillis());
+                        target.setLastConditionResult("Executed (single step)");
+                        stepModified(target);
+                        final StepExecutionInfo fi = info;
+                        this.sequenceExecutionListeners.forEach(l -> l.sequenceStepExecuted(fi));
+                    } catch (Exception e) {
+                        Stepper.montoya.logging().logToError("Stepper-NG: single-step run failed: " + e.getMessage());
+                    }
+                } finally {
+                    for (SequenceExecutionListener l : this.sequenceExecutionListeners) {
+                        try { l.afterSequenceEnd(true); }
+                        catch (Exception ex) { Stepper.montoya.logging().logToError("Stepper-NG: listener failed: " + ex.getMessage()); }
+                    }
+                    if (host != null) {
+                        try { host.endExecution(); } catch (Exception ignored) {}
+                    }
+                }
+            }
+        } finally {
+            MessageProcessor.popSequence();
+            this.isExecuting = false;
+            executionLock.lock();
+            try { executionDone.signalAll(); } finally { executionLock.unlock(); }
+        }
+    }
+
+    /**
+     * Condition-aware execution loop bounded by {@code lastIdx} (inclusive). Mirrors the body of
+     * {@link #executeBlocking(Map)} for retries / goto / skip / else action so "Run through here"
+     * behaves the same as a full run, just stopped early. Skips pre/post-validation steps so the
+     * debug aid doesn't trigger session-recovery side effects. A goto/else-goto whose target is
+     * past {@code lastIdx} terminates the loop instead of running beyond what the user requested.
+     */
+    private void runConditionalLoop(int lastIdx, StepperUI.ExecutionHost host) {
+        int maxIterations = (lastIdx + 1) * 10;
+        int iterations = 0;
+        int stepIndex = 0;
+        while (stepIndex <= lastIdx && iterations < maxIterations) {
+            Step step = steps.get(stepIndex);
+            iterations++;
+
+            if (!step.isEnabled()) { stepIndex++; continue; }
+            if (step.getStepId().equals(postValidationStepId)) { stepIndex++; continue; }
+
+            if (host != null) {
+                byte[] live = host.liveRequestBytes(step);
+                if (live != null && live.length > 0) step.setRequestBody(live);
+                host.setActive(step);
+            }
+
+            List<StepVariable> rolling = getRollingVariablesUpToStep(step);
+            StepCondition cond = step.getCondition();
+            boolean isAlways = cond != null && cond.getType() == StepCondition.ConditionType.ALWAYS;
+            int maxRetries = (cond != null && !isAlways) ? cond.getRetryCount() : 0;
+            StepExecutionInfo stepResult;
+            boolean conditionTriggered = false;
+
+            try {
+                stepResult = null;
+                for (int attempt = 0; attempt <= maxRetries; attempt++) {
+                    if (attempt > 0 && cond != null && cond.getRetryDelayMs() > 0) {
+                        try { Thread.sleep(cond.getRetryDelayMs()); } catch (InterruptedException ignored) {}
+                    }
+                    stepResult = step.executeStep(rolling);
+                    final StepExecutionInfo result = stepResult;
+                    this.sequenceExecutionListeners.forEach(l -> l.sequenceStepExecuted(result));
+
+                    if (cond != null && cond.isConfigured()) {
+                        conditionTriggered = cond.evaluate(stepResult);
+                        if (!conditionTriggered) break;
+                    } else {
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                Stepper.montoya.logging().logToError("Stepper-NG: run-through-here failed at step '"
+                        + step.getTitle() + "': " + e.getMessage());
+                step.setLastExecutionTime(System.currentTimeMillis());
+                step.setLastConditionResult("Error - run-through-here aborted");
+                stepModified(step);
+                return;
+            }
+
+            step.setLastExecutionTime(System.currentTimeMillis());
+            boolean reachedTarget = (stepIndex == lastIdx);
+
+            if (conditionTriggered && cond != null) {
+                switch (cond.getAction()) {
+                    case SKIP_REMAINING -> {
+                        step.setLastConditionResult("Triggered - skipped remaining steps");
+                        stepModified(step);
+                        return;
+                    }
+                    case GOTO_STEP -> {
+                        int gotoTarget = resolveStepIndex(cond.getGotoTarget());
+                        String name = resolveStepIdToDisplay(cond.getGotoTarget());
+                        step.setLastConditionResult("Triggered - goto " + (name != null ? name : cond.getGotoTarget()));
+                        stepModified(step);
+                        if (gotoTarget < 0 || gotoTarget > lastIdx) return;
+                        stepIndex = gotoTarget;
+                        continue;
+                    }
+                    case CONTINUE -> step.setLastConditionResult("Triggered - continued");
+                }
+            } else if (cond != null && cond.isConfigured()) {
+                ConditionFailAction elseAct = cond.getElseAction();
+                switch (elseAct) {
+                    case SKIP_REMAINING -> {
+                        step.setLastConditionResult("Not triggered - skipped remaining steps");
+                        stepModified(step);
+                        return;
+                    }
+                    case GOTO_STEP -> {
+                        int gotoTarget = resolveStepIndex(cond.getElseGotoTarget());
+                        String name = resolveStepIdToDisplay(cond.getElseGotoTarget());
+                        step.setLastConditionResult("Not triggered - goto " + (name != null ? name : cond.getElseGotoTarget()));
+                        stepModified(step);
+                        if (gotoTarget < 0 || gotoTarget > lastIdx) return;
+                        stepIndex = gotoTarget;
+                        continue;
+                    }
+                    case CONTINUE -> step.setLastConditionResult("Not triggered - continued");
+                }
+            } else {
+                step.setLastConditionResult(reachedTarget ? "Executed (run through here)" : "Executed");
+            }
+            stepModified(step);
+
+            stepIndex++;
+        }
+    }
+
+    public void executeThroughStepAsync(Step target) {
+        Thread t = new Thread(() -> {
+            try { executeThroughStep(target); }
+            catch (Throwable th) {
+                try { Stepper.montoya.logging().logToError("Stepper-NG: run-through worker crashed: " + th); } catch (Exception ignored) {}
+            }
+        });
+        t.setDaemon(true);
+        t.setName("Stepper-NG-RunThrough-" + (target != null ? target.getTitle() : "?"));
+        t.start();
+    }
+
+    public void insertStepAt(int index, Step step) {
+        if (index < 0) index = 0;
+        if (index > this.steps.size()) index = this.steps.size();
+        this.steps.add(index, step);
+        step.setSequence(this);
+        for (StepListener stepListener : this.stepListeners) {
+            try { stepListener.onStepAdded(step); } catch (Exception e) {
+                Stepper.montoya.logging().logToError("Stepper-NG: Error notifying step listener: " + e.getMessage());
+            }
+        }
     }
 
     public void executeBlocking(Map<String, String> arguments){
+        executeBlocking(arguments, false);
+    }
+
+    /**
+     * Run the sequence end-to-end. The pre-validation step is always executed when configured;
+     * the difference is what happens on success. When {@code continueAfterPreValidation} is false
+     * (automatic triggers from {@code MessageProcessor} / session-handling action), a successful
+     * pre-validation short-circuits the run — that's the whole point of the throttle during scans.
+     * When true (manual UI triggers — Run all), the pre-validation step still executes, but the
+     * sequence proceeds through all remaining steps regardless of the result.
+     */
+    public void executeBlocking(Map<String, String> arguments, boolean continueAfterPreValidation){
         if(this.isExecuting) return;
         if(this.disabled) return;
 
@@ -84,7 +315,6 @@ public class StepSequence
         }
 
         boolean needsBrokenDialog = false;
-        SequenceContainer brokenDialogContainer = null;
 
         MessageProcessor.pushSequence(this.sequenceId);
         try {
@@ -95,21 +325,23 @@ public class StepSequence
 
                 Map<StepVariable, String> savedValues = new HashMap<>();
                 if (arguments != null && !arguments.isEmpty()) {
-                    for (StepVariable variable : this.globalVariablesManager.getVariables()) {
-                        if (arguments.containsKey(variable.getIdentifier())) {
-                            savedValues.put(variable, variable.getValue());
-                            variable.setValue(arguments.get(variable.getIdentifier()));
+                    // Override step-level variables by identifier; restored in finally.
+                    for (Step step : this.steps) {
+                        for (StepVariable variable : step.getVariableManager().getVariables()) {
+                            if (arguments.containsKey(variable.getIdentifier())) {
+                                savedValues.putIfAbsent(variable, variable.getValue());
+                                variable.setValue(arguments.get(variable.getIdentifier()));
+                            }
                         }
                     }
                 }
 
-                SequenceContainer sequenceContainer = null;
+                StepperUI.ExecutionHost host = null;
                 try {
-                    StepSequenceTab tabUI = Stepper.getUI().getTabForStepManager(this);
-                    sequenceContainer = tabUI.getStepsContainer();
-                    sequenceContainer.beginExecution();
+                    host = Stepper.getUI() != null ? Stepper.getUI().getExecutionHost(this) : null;
+                    if (host != null) host.beginExecution();
 
-                    if (!Stepper.getUI().isSequenceVisible(this)) {
+                    if (Stepper.getUI() != null && !Stepper.getUI().isSequenceVisible(this)) {
                         if (!Stepper.getUI().isStepperTabVisible()) {
                             Stepper.getUI().highlightTab();
                         }
@@ -129,12 +361,11 @@ public class StepSequence
                         boolean hasUsableCondition = valCondition != null && valCondition.isConfigured()
                                 && valCondition.getType() != StepCondition.ConditionType.ALWAYS;
                         if (hasUsableCondition && valStep.isEnabled() && valStep.isReadyToExecute()) {
-                            StepPanel valPanel = sequenceContainer.getPanelForStep(valStep);
-                            byte[] valRequest = valPanel.getRequestEditor().getMessage();
-                            valStep.setRequestBody(valRequest);
+                            byte[] valRequest = host != null ? host.liveRequestBytes(valStep) : valStep.getRequest();
+                            if (valRequest != null) valStep.setRequestBody(valRequest);
 
                             boolean hasUnresolvedVars = false;
-                            if (MessageProcessor.hasStepVariable(valRequest)) {
+                            if (valRequest != null && MessageProcessor.hasStepVariable(valRequest)) {
                                 List<StepVariable> allVars = this.getRollingVariablesForWholeSequence();
                                 hasUnresolvedVars = allVars.stream()
                                         .anyMatch(v -> v.getValue() == null || v.getValue().isEmpty());
@@ -144,17 +375,22 @@ public class StepSequence
                                 valStep.setLastConditionResult("Skipped - variables not yet populated");
                                 stepModified(valStep);
                             } else {
-                                sequenceContainer.setActivePanel(valPanel);
+                                if (host != null) host.setActive(valStep);
                                 try {
                                     List<StepVariable> valReplacements = this.getRollingVariablesUpToStep(valStep);
                                     StepExecutionInfo valResult = valStep.executeStep(valReplacements);
                                     this.sequenceExecutionListeners.forEach(l -> l.sequenceStepExecuted(valResult));
                                     valStep.setLastExecutionTime(System.currentTimeMillis());
                                     if (valCondition.evaluate(valResult)) {
-                                        valStep.setLastConditionResult("Triggered - session valid, skipped rest");
-                                        stepModified(valStep);
-                                        for (SequenceExecutionListener l : sequenceExecutionListeners) l.afterSequenceEnd(true);
-                                        return;
+                                        if (continueAfterPreValidation) {
+                                            valStep.setLastConditionResult("Triggered - session valid (continuing full run)");
+                                            stepModified(valStep);
+                                        } else {
+                                            valStep.setLastConditionResult("Triggered - session valid, skipped rest");
+                                            stepModified(valStep);
+                                            for (SequenceExecutionListener l : sequenceExecutionListeners) l.afterSequenceEnd(true);
+                                            return;
+                                        }
                                     } else {
                                         valStep.setLastConditionResult("Not triggered - session invalid, running full sequence");
                                         stepModified(valStep);
@@ -169,8 +405,10 @@ public class StepSequence
 
                     for (Step step : this.steps) {
                         if (!step.isEnabled()) continue;
-                        StepPanel panel = sequenceContainer.getPanelForStep(step);
-                        step.setRequestBody(panel.getRequestEditor().getMessage());
+                        if (host != null) {
+                            byte[] live = host.liveRequestBytes(step);
+                            if (live != null && live.length > 0) step.setRequestBody(live);
+                        }
                         if (!step.isReadyToExecute()) {
                             Stepper.montoya.logging().logToError("Stepper-NG: Sequence '" + title + "' - step '" + step.getTitle() + "' is not ready to execute.");
                             for (SequenceExecutionListener l : this.sequenceExecutionListeners) l.afterSequenceEnd(false);
@@ -199,8 +437,7 @@ public class StepSequence
                                 continue;
                             }
 
-                            StepPanel panel = sequenceContainer.getPanelForStep(step);
-                            sequenceContainer.setActivePanel(panel);
+                            if (host != null) host.setActive(step);
                             List<StepVariable> rollingReplacements = this.getRollingVariablesUpToStep(step);
 
                             StepCondition cond = step.getCondition();
@@ -275,6 +512,7 @@ public class StepSequence
                         }
                         sequenceSuccess = true;
                     } catch (SequenceCancelledException e) {
+                        try { Stepper.montoya.logging().logToOutput("Stepper-NG: Sequence '" + title + "' cancelled."); } catch (Exception ignored) {}
                     } catch (SequenceExecutionException e) {
                         try { Stepper.montoya.logging().logToError("Stepper-NG: Sequence '" + title + "' stopped: " + e.getMessage()); } catch (Exception ignored) {}
                     } catch (Exception e) {
@@ -289,8 +527,7 @@ public class StepSequence
                             boolean hasUsableCondition = postValCondition != null && postValCondition.isConfigured()
                                     && postValCondition.getType() != StepCondition.ConditionType.ALWAYS;
                             if (hasUsableCondition && postValStep.isEnabled() && postValStep.isReadyToExecute()) {
-                                StepPanel postValPanel = sequenceContainer.getPanelForStep(postValStep);
-                                sequenceContainer.setActivePanel(postValPanel);
+                                if (host != null) host.setActive(postValStep);
                                 List<StepVariable> postValReplacements = this.getRollingVariablesUpToStep(postValStep);
                                 StepExecutionInfo postValResult = postValStep.executeStep(postValReplacements);
                                 postValStep.setLastExecutionTime(System.currentTimeMillis());
@@ -310,7 +547,6 @@ public class StepSequence
                                     if (consecutiveFailures >= maxConsecutiveFailures) {
                                         sequenceSuccess = false;
                                         needsBrokenDialog = true;
-                                        brokenDialogContainer = sequenceContainer;
                                     }
                                 }
                             }
@@ -327,8 +563,8 @@ public class StepSequence
                     for (Map.Entry<StepVariable, String> entry : savedValues.entrySet()) {
                         entry.getKey().setValue(entry.getValue());
                     }
-                    if (sequenceContainer != null) {
-                        try { sequenceContainer.endExecution(); } catch (Exception ignored) {}
+                    if (host != null) {
+                        try { host.endExecution(); } catch (Exception ignored) {}
                     }
                 }
             }
@@ -345,7 +581,7 @@ public class StepSequence
         }
 
         if (needsBrokenDialog) {
-            handleSessionBroken(brokenDialogContainer);
+            handleSessionBroken();
         }
     }
 
@@ -399,7 +635,13 @@ public class StepSequence
     }
 
     public void executeAsync(){
-        Thread t = new Thread(this::executeBlocking);
+        // Run-all from the UI: always run pre-validation *and* continue through remaining steps.
+        Thread t = new Thread(() -> {
+            try { executeBlocking(new HashMap<>(), true); }
+            catch (Throwable th) {
+                try { Stepper.montoya.logging().logToError("Stepper-NG: run-all worker crashed: " + th); } catch (Exception ignored) {}
+            }
+        });
         t.setDaemon(true);
         t.setName("Stepper-NG-Exec-" + this.title + "-" + this.sequenceId.substring(0, 8));
         t.start();
@@ -531,7 +773,7 @@ public class StepSequence
         return new ArrayList<>(rolling.values());
     }
 
-    public ArrayList<StepListener> getStepListeners() {
+    public java.util.List<StepListener> getStepListeners() {
         return stepListeners;
     }
 
@@ -559,9 +801,6 @@ public class StepSequence
         this.disabled = disabled;
     }
 
-    public VariableManager getGlobalVariableManager() {
-        return this.globalVariablesManager;
-    }
 
     public String getValidationStepId() {
         return validationStepId;
@@ -616,7 +855,7 @@ public class StepSequence
     /**
      * Called when post-validation has failed {@code maxConsecutiveFailures} times.
      */
-    private void handleSessionBroken(SequenceContainer sequenceContainer) {
+    private void handleSessionBroken() {
         long now = System.currentTimeMillis();
         if (now - lastBrokenDialogDismissedAt < BROKEN_DIALOG_COOLDOWN_MS) return;
 
@@ -649,9 +888,10 @@ public class StepSequence
             }
 
             SwingUtilities.invokeLater(() -> {
+                java.awt.Component parent = Stepper.suiteFrame();
                 try {
                     JOptionPane.showMessageDialog(
-                            sequenceContainer,
+                            parent,
                             "Session recovery failed for sequence '" + title + "'\n"
                                     + "after " + maxConsecutiveFailures + " consecutive attempts.\n"
                                     + "Time: " + timestamp + "\n\n"
@@ -673,10 +913,11 @@ public class StepSequence
             });
         } else {
             SwingUtilities.invokeLater(() -> {
+                java.awt.Component parent = Stepper.suiteFrame();
                 try {
                     Object[] options = {"Pause Tasks", "OK"};
                     int choice = JOptionPane.showOptionDialog(
-                            sequenceContainer,
+                            parent,
                             "Session recovery failed for sequence '" + title + "'\n"
                                     + "after " + maxConsecutiveFailures + " consecutive attempts.\n"
                                     + "Time: " + timestamp + "\n\n"

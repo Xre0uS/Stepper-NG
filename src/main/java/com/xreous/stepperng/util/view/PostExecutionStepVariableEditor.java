@@ -14,7 +14,7 @@ public class PostExecutionStepVariableEditor extends DefaultCellEditor {
 
     public PostExecutionStepVariableEditor() {
         super(new JTextField());
-        this.getComponent().setMinimumSize(new Dimension(100, 100));
+        // Minimum size is intentionally not set — the JTable sizes the editor to the cell bounds.
     }
 
     @Override

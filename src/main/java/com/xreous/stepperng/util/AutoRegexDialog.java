@@ -50,9 +50,15 @@ public class AutoRegexDialog {
         }
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
-        dialog.setMinimumSize(new Dimension(600, 400));
-        int width = Math.min(Math.max(700, (int) (screen.width * 0.55)), screen.width - 100);
-        int height = Math.min(Math.max(500, (int) (screen.height * 0.65)), screen.height - 100);
+        FontMetrics fm = dialog.getFontMetrics(editorFont);
+        int em = Math.max(1, fm.charWidth('M'));
+        int rowH = fm.getHeight();
+        // Minimum = enough to show a useful snippet of request/response + regex row.
+        int minW = Math.max(em * 72, 560);
+        int minH = Math.max(rowH * 22, 380);
+        dialog.setMinimumSize(new Dimension(minW, minH));
+        int width = Math.min(Math.max(em * 90, (int) (screen.width * 0.55)), screen.width - 100);
+        int height = Math.min(Math.max(rowH * 30, (int) (screen.height * 0.65)), screen.height - 100);
         dialog.setSize(new Dimension(width, height));
         dialog.setLocationRelativeTo(null);
 

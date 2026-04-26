@@ -17,7 +17,9 @@ public abstract class StepVariable {
 
     protected transient VariableManager variableManager;
     protected String identifier;
-    protected String value;
+    // Volatile: DVARs and published RegexVariables are written from Burp HTTP worker threads
+    // and read from other workers / the EDT for previews.
+    protected volatile String value;
     protected boolean published;
     protected transient long lastUpdated;
 
@@ -58,6 +60,10 @@ public abstract class StepVariable {
 
     public void setVariableManager(VariableManager variableManager){
         this.variableManager = variableManager;
+    }
+
+    public VariableManager getVariableManager(){
+        return this.variableManager;
     }
 
     public String getValue() {

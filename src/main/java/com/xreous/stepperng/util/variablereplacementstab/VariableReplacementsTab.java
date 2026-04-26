@@ -344,20 +344,16 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
         HashMap<StepSequence, List<StepVariable>> inSequenceVars;
         HashMap<StepSequence, List<StepVariable>> crossSequenceVars;
         if (this.step != null) {
-            // In-sequence: only variables up to this step (for $VAR:name$ replacement)
             inSequenceVars = new HashMap<>();
             inSequenceVars.put(this.step.getSequence(),
                     this.step.getSequence().getRollingVariablesUpToStep(this.step));
-
-            // Cross-sequence: full variable lists from ALL sequences (for $VAR:seq:name$ replacement)
             crossSequenceVars = this.sequenceManager.getRollingVariablesFromAllSequences();
         } else {
             inSequenceVars = new HashMap<>();
             crossSequenceVars = this.sequenceManager.getRollingVariablesFromAllSequences();
         }
 
-
-        String contentString = new String(content);
+        String contentString = new String(content, java.nio.charset.StandardCharsets.UTF_8);
         try {
             replaceAndHighlight(contentString, inSequenceVars, crossSequenceVars);
         } catch (BadLocationException e) {
@@ -370,144 +366,88 @@ public class VariableReplacementsTab implements ExtensionProvidedHttpRequestEdit
     private void replaceAndHighlight(String content,
                                      HashMap<StepSequence, List<StepVariable>> inSequenceVariables,
                                      HashMap<StepSequence, List<StepVariable>> crossSequenceVariables) throws BadLocationException {
-        StringBuffer output;
-        String contentToSearch = content;
-        ArrayList<Integer[]> highlightRanges = new ArrayList<>();
+        String current = content;
+        List<int[]> highlights = new ArrayList<>();
 
-        // Replace in-sequence $VAR:name$ variables (only variables up to the current step)
         for (Map.Entry<StepSequence, List<StepVariable>> entry : inSequenceVariables.entrySet()) {
-            List<StepVariable> variables = entry.getValue();
-
-            for (StepVariable stepVariable : variables) {
-                output = new StringBuffer();
-                Pattern pattern = StepVariable.createIdentifierPattern(stepVariable);
-                String replacement = stepVariable.getValuePreview() != null ? stepVariable.getValuePreview() : "";
-                Matcher m = pattern.matcher(contentToSearch);
-                int replacementCount = 0;
-                replacement = replacement.replaceAll("\\$", "\\\\\\$");
-                while (m.find()) {
-                    m.appendReplacement(output, replacement);
-                    int foundOffset = m.start() + (replacementCount * (replacement.length() - m.group().length()));
-                    int foundLength = Math.abs(output.length() - foundOffset);
-                    replacementCount++;
-                    for (Integer[] range : highlightRanges) {
-                        if (range[0] >= foundOffset) {
-                            range[0] = range[0] - foundLength + replacement.length();
-                        }
-                    }
-                    highlightRanges.add(new Integer[]{foundOffset, foundLength});
-                }
-                m.appendTail(output);
-                contentToSearch = output.toString();
+            for (StepVariable v : entry.getValue()) {
+                current = runPass(current, highlights,
+                        StepVariable.createIdentifierPattern(v),
+                        v.getValuePreview() != null ? v.getValuePreview() : "");
             }
         }
-
-        // Replace cross-sequence $VAR:seq:name$ variables (full variable lists from all sequences)
         for (Map.Entry<StepSequence, List<StepVariable>> entry : crossSequenceVariables.entrySet()) {
-            StepSequence sequence = entry.getKey();
-            List<StepVariable> variables = entry.getValue();
-
-            for (StepVariable stepVariable : variables) {
-                output = new StringBuffer();
-                Pattern pattern = StepVariable.createIdentifierPatternWithSequence(sequence, stepVariable);
-
-
-                String replacement = stepVariable.getValuePreview() != null ? stepVariable.getValuePreview() : "";
-                Matcher m = pattern.matcher(contentToSearch);
-                int replacementCount = 0;
-                replacement = replacement.replaceAll("\\$", "\\\\\\$");
-                while (m.find()) {
-                    m.appendReplacement(output, replacement);
-                    int foundOffset = m.start() + (replacementCount * (replacement.length() - m.group().length()));
-                    int foundLength = Math.abs(output.length() - foundOffset);
-                    replacementCount++;
-
-                    for (Integer[] range : highlightRanges) {
-                        if (range[0] >= foundOffset) {
-                            range[0] = range[0] - foundLength + replacement.length();
-                        }
-                    }
-                    highlightRanges.add(new Integer[]{foundOffset, foundLength});
-                }
-                m.appendTail(output);
-                contentToSearch = output.toString();
+            StepSequence seq = entry.getKey();
+            for (StepVariable v : entry.getValue()) {
+                current = runPass(current, highlights,
+                        StepVariable.createIdentifierPatternWithSequence(seq, v),
+                        v.getValuePreview() != null ? v.getValuePreview() : "");
             }
         }
-
-        // Replace $DVAR: variables
         DynamicGlobalVariableManager dvarManager = Stepper.getDynamicGlobalVariableManager();
         if (dvarManager != null) {
             for (DynamicGlobalVariable dvar : dvarManager.getVariables()) {
-                output = new StringBuffer();
-                Pattern pattern = DynamicGlobalVariable.createDvarPattern(dvar.getIdentifier());
-                String replacement = dvar.getValue() != null ? dvar.getValue() : "";
-                Matcher m = pattern.matcher(contentToSearch);
-                int replacementCount = 0;
-                replacement = replacement.replaceAll("\\$", "\\\\\\$");
-                while (m.find()) {
-                    m.appendReplacement(output, replacement);
-                    int foundOffset = m.start() + (replacementCount * (replacement.length() - m.group().length()));
-                    int foundLength = Math.abs(output.length() - foundOffset);
-                    replacementCount++;
-
-                    for (Integer[] range : highlightRanges) {
-                        if (range[0] >= foundOffset) {
-                            range[0] = range[0] - foundLength + replacement.length();
-                        }
-                    }
-                    highlightRanges.add(new Integer[]{foundOffset, foundLength});
-                }
-                m.appendTail(output);
-                contentToSearch = output.toString();
+                current = runPass(current, highlights,
+                        DynamicGlobalVariable.createDvarPattern(dvar.getIdentifier()),
+                        dvar.getValue() != null ? dvar.getValue() : "");
             }
-
-            // Replace $GVAR: variables
             for (StaticGlobalVariable svar : dvarManager.getStaticVariables()) {
-                output = new StringBuffer();
-                Pattern pattern = StaticGlobalVariable.createGvarPattern(svar.getIdentifier());
-                String replacement = svar.getValue() != null ? svar.getValue() : "";
-                Matcher m = pattern.matcher(contentToSearch);
-                int replacementCount = 0;
-                replacement = replacement.replaceAll("\\$", "\\\\\\$");
-                while (m.find()) {
-                    m.appendReplacement(output, replacement);
-                    int foundOffset = m.start() + (replacementCount * (replacement.length() - m.group().length()));
-                    int foundLength = Math.abs(output.length() - foundOffset);
-                    replacementCount++;
-
-                    for (Integer[] range : highlightRanges) {
-                        if (range[0] >= foundOffset) {
-                            range[0] = range[0] - foundLength + replacement.length();
-                        }
-                    }
-                    highlightRanges.add(new Integer[]{foundOffset, foundLength});
-                }
-                m.appendTail(output);
-                contentToSearch = output.toString();
+                current = runPass(current, highlights,
+                        StaticGlobalVariable.createGvarPattern(svar.getIdentifier()),
+                        svar.getValue() != null ? svar.getValue() : "");
             }
         }
-
-        output = new StringBuffer();
-        output.append(contentToSearch);
 
         Style highlighted = document.getStyle("highlighted");
         Style defaultStyle = document.getStyle(StyleContext.DEFAULT_STYLE);
 
-        highlightRanges.sort((a, b) -> a[0] - b[0]);
+        highlights.sort((a, b) -> Integer.compare(a[0], b[0]));
 
         document.remove(0, document.getLength());
-        int currentOffset = 0;
-        for (Integer[] highlightRange : highlightRanges) {
-            if (highlightRange[0] > currentOffset) {
-                document.insertString(document.getLength(), output.substring(currentOffset, highlightRange[0]), defaultStyle);
+        int cursor = 0;
+        for (int[] range : highlights) {
+            int start = range[0], length = range[1];
+            if (start > cursor) document.insertString(document.getLength(), current.substring(cursor, start), defaultStyle);
+            int end = Math.min(start + length, current.length());
+            document.insertString(document.getLength(), current.substring(start, end), highlighted);
+            cursor = end;
+        }
+        if (cursor < current.length()) {
+            document.insertString(document.getLength(), current.substring(cursor), defaultStyle);
+        }
+    }
+
+    /**
+     * Runs a single match/replace sweep. Tracks exact replacement offsets via
+     * {@link Matcher#appendReplacement(StringBuffer, String)} and remaps any
+     * previously recorded highlight ranges by the accumulated position deltas.
+     */
+    private static String runPass(String content, List<int[]> highlights, Pattern pattern, String replacement) {
+        Matcher m = pattern.matcher(content);
+        if (!m.find()) return content;
+
+        StringBuffer out = new StringBuffer(content.length());
+        List<int[]> newHighlights = new ArrayList<>();
+        List<int[]> spans = new ArrayList<>();
+        String quoted = Matcher.quoteReplacement(replacement);
+        do {
+            int matchLen = m.end() - m.start();
+            m.appendReplacement(out, quoted);
+            int replStartInOutput = out.length() - replacement.length();
+            newHighlights.add(new int[]{replStartInOutput, replacement.length()});
+            spans.add(new int[]{m.end(), replacement.length() - matchLen});
+        } while (m.find());
+        m.appendTail(out);
+
+        for (int[] h : highlights) {
+            int shift = 0;
+            for (int[] s : spans) {
+                if (s[0] <= h[0]) shift += s[1];
+                else break;
             }
-            currentOffset = highlightRange[0];
-            int end = Math.min(currentOffset + highlightRange[1], output.length());
-            document.insertString(document.getLength(), output.substring(currentOffset, end), highlighted);
-            currentOffset = end;
+            h[0] += shift;
         }
-        if (currentOffset < output.length()) {
-            document.insertString(document.getLength(), output.substring(currentOffset), defaultStyle);
-        }
+        highlights.addAll(newHighlights);
+        return out.toString();
     }
 }

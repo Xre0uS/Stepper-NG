@@ -19,7 +19,6 @@ import com.xreous.stepperng.variable.StaticGlobalVariable;
 import javax.swing.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,55 +38,62 @@ public class MessageProcessor implements HttpHandler {
     public static final Pattern EXECUTE_BEFORE_HEADER_PATTERN = Pattern.compile("^" + EXECUTE_BEFORE_REGEX + "$", Pattern.CASE_INSENSITIVE);
     public static final Pattern EXECUTE_AFTER_HEADER_PATTERN = Pattern.compile("^" + EXECUTE_AFTER_REGEX + "$", Pattern.CASE_INSENSITIVE);
     public static final Pattern EXECUTE_VAR_HEADER_PATTERN = Pattern.compile("^" + EXECUTE_VAR_REGEX + "$", Pattern.CASE_INSENSITIVE);
-    public static final Pattern SEQUENCE_NAME_PATTERN = Pattern.compile("^([^:]+)(?::?)");
+    public static final Pattern SEQUENCE_NAME_PATTERN = Pattern.compile("^([^:{]+)(?::?)");
+    public static final Pattern RANGE_PATTERN = Pattern.compile("\\{\\s*(\\d+)\\s*(?::\\s*(\\d+)\\s*)?}");
     public static final Pattern VARIABLE_LIST_PATTERN = Pattern.compile("[^:]+(:\\s*(?<variables>.+))?");
     public static final Pattern VARIABLE_PATTERN = Pattern.compile("(?<key>[^=]+)=(?<value>[^;]+);?");
     public static final Pattern SINGLE_VARIABLE_PATTERN = Pattern.compile("(?<key>[^=]+)=(?<value>.*)");
 
-    private static final Set<Thread> internalRequestThreads = Collections.synchronizedSet(new HashSet<>());
-    private static final ThreadLocal<ArrayDeque<String>> executionStack = ThreadLocal.withInitial(ArrayDeque::new);
+    // Lazy ThreadLocals: avoid pinning state to every Burp worker that only reads the stack.
+    private static final ThreadLocal<Boolean> internalRequestFlag = new ThreadLocal<>();
+    private static final ThreadLocal<ArrayDeque<String>> executionStack = new ThreadLocal<>();
     private static final AtomicInteger requestCounter = new AtomicInteger(0);
 
     public static final Pattern CROSS_SEQ_VAR_PATTERN = Pattern.compile("\\$VAR:([^:$]+):([^$]+)\\$");
 
     private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
 
-    private static final AtomicBoolean showingUnprocessableWarning = new AtomicBoolean(false);
-    private static volatile long lastUnprocessableWarningDismissedAt = 0;
-    private static final long UNPROCESSABLE_WARNING_COOLDOWN_MS = 30_000;
-
     public static void markInternalRequest() {
-        internalRequestThreads.add(Thread.currentThread());
+        internalRequestFlag.set(Boolean.TRUE);
     }
 
     public static void unmarkInternalRequest() {
-        internalRequestThreads.remove(Thread.currentThread());
+        internalRequestFlag.remove();
     }
 
     public static boolean isInternalRequest() {
-        return internalRequestThreads.contains(Thread.currentThread());
+        return internalRequestFlag.get() != null;
     }
 
     public static void pushSequence(String sequenceName) {
-        executionStack.get().push(sequenceName);
+        ArrayDeque<String> stack = executionStack.get();
+        if (stack == null) {
+            stack = new ArrayDeque<>();
+            executionStack.set(stack);
+        }
+        stack.push(sequenceName);
     }
 
     public static void popSequence() {
         ArrayDeque<String> stack = executionStack.get();
+        if (stack == null) return;
         if (!stack.isEmpty()) stack.pop();
         if (stack.isEmpty()) executionStack.remove();
     }
 
     public static boolean isSequenceOnStack(String sequenceName) {
-        return executionStack.get().contains(sequenceName);
+        ArrayDeque<String> stack = executionStack.get();
+        return stack != null && stack.contains(sequenceName);
     }
 
     public static int getStackDepth() {
-        return executionStack.get().size();
+        ArrayDeque<String> stack = executionStack.get();
+        return stack == null ? 0 : stack.size();
     }
 
     public static void cleanup() {
-        internalRequestThreads.clear();
+        internalRequestFlag.remove();
+        executionStack.remove();
         requestCounter.set(0);
     }
 
@@ -153,10 +159,6 @@ public class MessageProcessor implements HttpHandler {
         return false;
     }
 
-    public static boolean isUnprocessable(byte[] content){
-        return new String(content).indexOf('\uFFFD') != -1;
-    }
-
     @Override
     public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent requestToBeSent) {
         HttpRequest request = requestToBeSent;
@@ -168,7 +170,6 @@ public class MessageProcessor implements HttpHandler {
 
         if(isValidTool(requestToBeSent.toolSource())){
             List<String> headers = request.headers().stream().map(h -> h.name() + ": " + h.value()).toList();
-            byte[] requestBytes = request.toByteArray().getBytes();
 
             Map<String, String> standaloneArgs = extractArgumentsFromHeaders(headers, EXECUTE_VAR_HEADER_PATTERN);
 
@@ -181,10 +182,14 @@ public class MessageProcessor implements HttpHandler {
                 for (RequestSequenceInformation info : preExecSequences) {
                     Map<String, String> merged = new HashMap<>(standaloneArgs);
                     merged.putAll(info.arguments);
-                    info.sequence.executeBlocking(merged);
+                    List<Step> snapshot = info.sequence.getSteps();
+                    if (info.upToIndexInclusive >= 0 && info.upToIndexInclusive < snapshot.size()) {
+                        info.sequence.executeThroughStep(snapshot.get(info.upToIndexInclusive));
+                    } else {
+                        info.sequence.executeBlocking(merged);
+                    }
                     alreadyExecuted.add(info.sequence);
                 }
-                requestBytes = request.toByteArray().getBytes();
             }
 
             List<RequestSequenceInformation> postExecSequences = extractExecSequencesFromHeaders(headers, EXECUTE_AFTER_HEADER_PATTERN);
@@ -200,10 +205,10 @@ public class MessageProcessor implements HttpHandler {
                 String serialized = GSON.toJson(serializedMap);
                 String existingNotes = annotations.notes() != null ? annotations.notes() : "";
                 annotations = annotations.withNotes(existingNotes + EXECUTE_AFTER_HEADER + ":" + serialized);
-                requestBytes = request.toByteArray().getBytes();
             }
 
-            String requestString = new String(requestBytes);
+            byte[] requestBytes = request.toByteArray().getBytes();
+            String requestString = new String(requestBytes, StandardCharsets.UTF_8);
             boolean hasDollar = requestString.indexOf('$') >= 0;
 
             if (dynamicGlobalVariableManager != null
@@ -216,6 +221,8 @@ public class MessageProcessor implements HttpHandler {
                     try { Stepper.montoya.logging().logToError("Stepper-NG: DVAR request capture error: " + e.getMessage()); } catch (Exception ignored) {}
                 }
             }
+
+            boolean mutated = false;
 
             if (hasDollar) {
                 Set<StepSequence> autoExecSequences = sequenceManager.getSequencesToAutoExecute(requestString);
@@ -233,7 +240,7 @@ public class MessageProcessor implements HttpHandler {
                     boolean holdRequests = getBoolPref(Globals.PREF_HOLD_REQUESTS_DURING_EXECUTION, false);
 
                     int count = incrementAndGetRequestCount();
-                    boolean shouldValidate = (count % validateEveryN == 0);
+                    boolean shouldValidate = (((count - 1) % validateEveryN) == 0);
 
                     for (StepSequence seq : autoExecSequences) {
                         if (!alreadyExecuted.contains(seq)
@@ -251,44 +258,11 @@ public class MessageProcessor implements HttpHandler {
 
                 if (hasStepVariable(requestString)) {
                     HashMap<StepSequence, List<StepVariable>> allVariables = sequenceManager.getRollingVariablesFromAllSequences();
-                    if(allVariables.size() > 0) {
-                        if(isUnprocessable(requestBytes) && getBoolPref(Globals.PREF_ENABLE_UNPROCESSABLE_WARNING, true)){
-                            if (System.currentTimeMillis() - lastUnprocessableWarningDismissedAt >= UNPROCESSABLE_WARNING_COOLDOWN_MS
-                                    && showingUnprocessableWarning.compareAndSet(false, true)) {
-                                final boolean[] proceed = {true};
-                                try {
-                                    SwingUtilities.invokeAndWait(() -> {
-                                        try {
-                                            String[] options = {"Yes", "No", "Don't show again"};
-                                            int result = JOptionPane.showOptionDialog(Stepper.getUI().getUiComponent(),
-                                                    "The request contains non-UTF-8 characters.\nStepper can make the replacements, " +
-                                                            "but some binary data may be lost. Continue?",
-                                                    "Stepper Replacement Warning", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
-                                                    null, options, options[0]);
-                                            if (result == 1) {
-                                                proceed[0] = false;
-                                            } else if (result == 2) {
-                                                if (preferences != null) preferences.setSetting(Globals.PREF_ENABLE_UNPROCESSABLE_WARNING, false);
-                                            }
-                                        } finally {
-                                            lastUnprocessableWarningDismissedAt = System.currentTimeMillis();
-                                            showingUnprocessableWarning.set(false);
-                                        }
-                                    });
-                                } catch (Exception ignored) {
-                                    lastUnprocessableWarningDismissedAt = System.currentTimeMillis();
-                                    showingUnprocessableWarning.set(false);
-                                }
-                                if (!proceed[0])
-                                    return RequestToBeSentAction.continueWith(request, annotations);
-                            }
-                        }
-
+                    if(!allVariables.isEmpty()) {
                         try {
+                            byte[] before = requestBytes;
                             requestBytes = makeReplacementsForAllSequences(requestBytes, allVariables);
-                            if(getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)){
-                                requestBytes = updateContentLength(requestBytes);
-                            }
+                            if (requestBytes != before) mutated = true;
                         } catch (Exception e) {
                             Stepper.montoya.logging().logToError("Stepper-NG: Variable replacement error: " + e.getMessage());
                         }
@@ -297,10 +271,9 @@ public class MessageProcessor implements HttpHandler {
 
                 if (hasDvarVariable(requestString)) {
                     try {
+                        byte[] before = requestBytes;
                         requestBytes = makeDvarReplacements(requestBytes, dynamicGlobalVariableManager);
-                        if(getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)){
-                            requestBytes = updateContentLength(requestBytes);
-                        }
+                        if (requestBytes != before) mutated = true;
                     } catch (UnsupportedOperationException e) {
                         Stepper.montoya.logging().logToError("Stepper-NG: DVAR replacement error: " + e.getMessage());
                     }
@@ -308,14 +281,17 @@ public class MessageProcessor implements HttpHandler {
 
                 if (hasGvarVariable(requestString)) {
                     try {
+                        byte[] before = requestBytes;
                         requestBytes = makeGvarReplacements(requestBytes, dynamicGlobalVariableManager);
-                        if(getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)){
-                            requestBytes = updateContentLength(requestBytes);
-                        }
+                        if (requestBytes != before) mutated = true;
                     } catch (UnsupportedOperationException e) {
                         Stepper.montoya.logging().logToError("Stepper-NG: GVAR replacement error: " + e.getMessage());
                     }
                 }
+            }
+
+            if (mutated && getBoolPref(Globals.PREF_UPDATE_REQUEST_LENGTH, true)) {
+                requestBytes = updateContentLength(requestBytes);
             }
 
             request = HttpRequest.httpRequest(request.httpService(), burp.api.montoya.core.ByteArray.byteArray(requestBytes));
@@ -366,7 +342,7 @@ public class MessageProcessor implements HttpHandler {
         if (needsPassthrough) {
             try {
                 if (responseText == null) {
-                    responseText = new String(responseReceived.toByteArray().getBytes());
+                    responseText = new String(responseReceived.toByteArray().getBytes(), StandardCharsets.UTF_8);
                 }
                 for (StepSequence seq : sequenceManager.getSequences()) {
                     if (seq.isDisabled()) continue;
@@ -439,20 +415,22 @@ public class MessageProcessor implements HttpHandler {
         return ReplacingInputStream.applyReplacements(originalContent, replacements);
     }
 
+    /**
+     * Re-computes Content-Length using byte offsets so non-UTF-8 bodies aren't corrupted.
+     */
     public static byte[] updateContentLength(byte[] request){
-        String requestStr = new String(request, StandardCharsets.UTF_8);
-        int headerEnd = requestStr.indexOf("\r\n\r\n");
-        if (headerEnd == -1) return request;
+        int headerEnd = indexOf(request, CRLF_CRLF);
+        if (headerEnd < 0) return request;
 
-        String headerPart = requestStr.substring(0, headerEnd);
-        String bodyPart = requestStr.substring(headerEnd + 4);
-        int bodyLength = bodyPart.getBytes(StandardCharsets.UTF_8).length;
+        int bodyStart = headerEnd + 4;
+        int bodyLength = request.length - bodyStart;
 
+        String headerPart = new String(request, 0, headerEnd, StandardCharsets.ISO_8859_1);
         String[] headerLines = headerPart.split("\r\n");
-        StringBuilder newHeaders = new StringBuilder();
+        StringBuilder newHeaders = new StringBuilder(headerPart.length() + 32);
         boolean found = false;
         for (String line : headerLines) {
-            if (line.toLowerCase().startsWith("content-length:")) {
+            if (line.regionMatches(true, 0, "Content-Length:", 0, Math.min(line.length(), 15))) {
                 found = true;
                 continue;
             }
@@ -461,8 +439,27 @@ public class MessageProcessor implements HttpHandler {
         if (bodyLength > 0 || found) {
             newHeaders.append("Content-Length: ").append(bodyLength).append("\r\n");
         }
-        newHeaders.append("\r\n").append(bodyPart);
-        return newHeaders.toString().getBytes(StandardCharsets.UTF_8);
+        newHeaders.append("\r\n");
+
+        byte[] headerBytes = newHeaders.toString().getBytes(StandardCharsets.ISO_8859_1);
+        byte[] out = new byte[headerBytes.length + bodyLength];
+        System.arraycopy(headerBytes, 0, out, 0, headerBytes.length);
+        System.arraycopy(request, bodyStart, out, headerBytes.length, bodyLength);
+        return out;
+    }
+
+    private static final byte[] CRLF_CRLF = {'\r', '\n', '\r', '\n'};
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        int limit = haystack.length - needle.length;
+        outer:
+        for (int i = 0; i <= limit; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) continue outer;
+            }
+            return i;
+        }
+        return -1;
     }
 
     public List<RequestSequenceInformation> extractExecSequencesFromHeaders(List<String> headers, Pattern pattern){
@@ -478,10 +475,18 @@ public class MessageProcessor implements HttpHandler {
             String sequenceNameOrId = nameMatcher.group(1).trim();
             Map<String, String> arguments = extractVariablesFromInfoString(headerValue);
 
+            int upToIndex = -1;
+            Matcher rangeMatcher = RANGE_PATTERN.matcher(headerValue);
+            if (rangeMatcher.find()) {
+                // {N} -> [0..N]; {start:end} -> [0..end]  (start currently unused, always runs from 0)
+                String endGroup = rangeMatcher.group(2) != null ? rangeMatcher.group(2) : rangeMatcher.group(1);
+                try { upToIndex = Integer.parseInt(endGroup); } catch (NumberFormatException ignored) {}
+            }
+
             Optional<StepSequence> execSequence = sequenceManager.findSequence(sequenceNameOrId);
 
             if (execSequence.isPresent())
-                execSequences.add(new RequestSequenceInformation(execSequence.get(), arguments));
+                execSequences.add(new RequestSequenceInformation(execSequence.get(), arguments, upToIndex));
             else
                 Stepper.montoya.logging().logToError("Stepper-NG: Could not find execution sequence: \"" + sequenceNameOrId + "\".");
         }
@@ -548,13 +553,14 @@ public class MessageProcessor implements HttpHandler {
     }
 
     public static HttpRequest removeHeaderMatchingPattern(HttpRequest request, Pattern pattern){
-        List<burp.api.montoya.http.message.HttpHeader> headers = request.headers();
-        for (burp.api.montoya.http.message.HttpHeader header : headers) {
+        Set<String> names = new LinkedHashSet<>();
+        for (burp.api.montoya.http.message.HttpHeader header : request.headers()) {
             String headerLine = header.name() + ": " + header.value();
-            if(pattern.matcher(headerLine).matches()){
-                request = request.withRemovedHeader(header.name());
+            if (pattern.matcher(headerLine).matches()) {
+                names.add(header.name());
             }
         }
+        for (String n : names) request = request.withRemovedHeader(n);
         return request;
     }
 

@@ -75,13 +75,14 @@ public class RegexVariable extends PostExecutionStepVariable {
         if(executionInfo == null)
             return;
 
-        String response = new String(executionInfo.getRequestResponse().response().toByteArray().getBytes());
+        String response = new String(executionInfo.getRequestResponse().response().toByteArray().getBytes(),
+                java.nio.charset.StandardCharsets.UTF_8);
         applyRegex(response);
     }
 
     public void updateFromResponseBytes(byte[] responseBytes) {
         if (responseBytes == null || responseBytes.length == 0 || ensureCompiled() == null) return;
-        applyRegex(new String(responseBytes));
+        applyRegex(new String(responseBytes, java.nio.charset.StandardCharsets.UTF_8));
     }
 
     public void updateFromResponse(String responseText) {

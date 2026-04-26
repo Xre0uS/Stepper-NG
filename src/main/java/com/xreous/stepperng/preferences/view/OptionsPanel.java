@@ -12,6 +12,7 @@ import com.xreous.stepperng.sequencemanager.SequenceManager;
 import com.xreous.stepperng.variable.DynamicGlobalVariable;
 import com.xreous.stepperng.variable.DynamicGlobalVariableManager;
 import com.xreous.stepperng.variable.StaticGlobalVariable;
+import com.xreous.stepperng.util.view.Themes;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
@@ -41,8 +42,6 @@ public class OptionsPanel extends JPanel {
     }
 
     private void buildDegradedPanel() {
-        PanelBuilder panelBuilder = new PanelBuilder();
-
         ComponentGroup warningGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Status");
         JTextArea warningText = new JTextArea(
                 "Stepper-NG is running in degraded mode because the Burp project file is corrupted.\n\n"
@@ -52,7 +51,7 @@ public class OptionsPanel extends JPanel {
         warningText.setLineWrap(true);
         warningText.setWrapStyleWord(true);
         warningText.setOpaque(false);
-        warningText.setForeground(new Color(200, 80, 80));
+        warningText.setForeground(Themes.errorForeground(warningText));
         warningText.setFont(warningText.getFont().deriveFont(Font.BOLD));
         warningText.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         warningGroup.add(warningText);
@@ -60,19 +59,27 @@ public class OptionsPanel extends JPanel {
         ComponentGroup importExportGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Import / Export");
         addImportExportButtons(importExportGroup);
 
-        panelBuilder.setComponentGrid(new JComponent[][]{
-                new JComponent[]{warningGroup},
-                new JComponent[]{importExportGroup}
-        });
-        panelBuilder.setAlignment(Alignment.TOPMIDDLE);
-        this.add(panelBuilder.build());
+        JPanel stack = new JPanel();
+        stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+        stack.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        for (JComponent g : new JComponent[]{warningGroup, importExportGroup}) {
+            g.setAlignmentX(Component.LEFT_ALIGNMENT);
+            stack.add(g);
+            stack.add(Box.createVerticalStrut(10));
+        }
+        stack.add(Box.createVerticalGlue());
+
+        this.setLayout(new BorderLayout());
+        JScrollPane scroll = new JScrollPane(capWidth(stack),
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        this.add(scroll, BorderLayout.CENTER);
     }
 
     private void buildPanel() {
         ComponentGroup configGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Config");
         configGroup.addPreferenceComponent(preferences, Globals.PREF_UPDATE_REQUEST_LENGTH, "Automatically update the Content-Length header");
-        configGroup.addPreferenceComponent(preferences, Globals.PREF_ENABLE_SHORTCUT, "Enable Shortcut (Ctrl+Alt+G)");
-        configGroup.addPreferenceComponent(preferences, Globals.PREF_ENABLE_UNPROCESSABLE_WARNING, "Warn on non UTF-8 characters in request");
 
         ComponentGroup toolEnabledGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Allow Variables Usage");
         JCheckBox allToolsCheckbox = toolEnabledGroup.addPreferenceComponent(preferences, Globals.PREF_VARS_IN_ALL_TOOLS, "All Tools");
@@ -83,7 +90,7 @@ public class OptionsPanel extends JPanel {
         JCheckBox sequencerCheckbox = toolEnabledGroup.addPreferenceComponent(preferences, Globals.PREF_VARS_IN_SEQUENCER, "Sequencer");
         JCheckBox extenderCheckbox = toolEnabledGroup.addPreferenceComponent(preferences, Globals.PREF_VARS_IN_EXTENDER, "Extensions");
 
-        { //Set initial states
+        Runnable syncIndividualToolEnabled = () -> {
             boolean individualEnabled = !allToolsCheckbox.isSelected();
             proxyCheckbox.setEnabled(individualEnabled);
             repeaterCheckbox.setEnabled(individualEnabled);
@@ -91,22 +98,10 @@ public class OptionsPanel extends JPanel {
             scannerCheckbox.setEnabled(individualEnabled);
             sequencerCheckbox.setEnabled(individualEnabled);
             extenderCheckbox.setEnabled(individualEnabled);
-        }
+        };
+        syncIndividualToolEnabled.run();
+        allToolsCheckbox.addChangeListener(changeEvent -> syncIndividualToolEnabled.run());
 
-        allToolsCheckbox.addChangeListener(changeEvent -> {
-            boolean individualEnabled = !allToolsCheckbox.isSelected();
-            proxyCheckbox.setEnabled(individualEnabled);
-            repeaterCheckbox.setEnabled(individualEnabled);
-            intruderCheckbox.setEnabled(individualEnabled);
-            scannerCheckbox.setEnabled(individualEnabled);
-            sequencerCheckbox.setEnabled(individualEnabled);
-            extenderCheckbox.setEnabled(individualEnabled);
-        });
-
-        GridBagConstraints constraints = toolEnabledGroup.generateNextConstraints(true);
-        toolEnabledGroup.add(Box.createHorizontalStrut(175), constraints);
-
-        PanelBuilder panelBuilder = new PanelBuilder();
 
         ComponentGroup sessionGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Session Handling");
 
@@ -134,19 +129,11 @@ public class OptionsPanel extends JPanel {
                 "When a sequence is already running (e.g. refreshing a token), hold other worker threads "
                 + "until it finishes so they receive the updated variable values instead of stale ones.");
 
-        JTextArea sessionHelp = new JTextArea(
+        sessionGroup.add(helpLabel(
                 "Requests containing $VAR: references auto-execute the owning sequence. "
                 + "Set N > 1 to skip redundant re-executions during scans/intruder runs. "
                 + "Enable 'Hold requests' to prevent concurrent workers from using stale tokens "
-                + "while a sequence is mid-execution.");
-        sessionHelp.setEditable(false);
-        sessionHelp.setLineWrap(true);
-        sessionHelp.setWrapStyleWord(true);
-        sessionHelp.setOpaque(false);
-        sessionHelp.setFont(sessionHelp.getFont().deriveFont(Font.ITALIC, sessionHelp.getFont().getSize2D() - 1f));
-        sessionHelp.setForeground(UIManager.getColor("Label.disabledForeground"));
-        sessionHelp.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
-        sessionGroup.add(sessionHelp);
+                + "while a sequence is mid-execution."));
 
         ComponentGroup importExportGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Import / Export");
         addImportExportButtons(importExportGroup);
@@ -154,15 +141,39 @@ public class OptionsPanel extends JPanel {
         ComponentGroup backupGroup = new ComponentGroup(ComponentGroup.Orientation.VERTICAL, "Auto-Backup");
         addAutoBackupControls(backupGroup);
 
-        panelBuilder.setComponentGrid(new JComponent[][]{new JComponent[]{toolEnabledGroup, importExportGroup},
-                                                                new JComponent[]{configGroup, backupGroup},
-                                                                new JComponent[]{sessionGroup, backupGroup}});
-        panelBuilder.setAlignment(Alignment.TOPMIDDLE);
-        this.add(panelBuilder.build());
+        JPanel stack = new JPanel();
+        stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+        stack.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        for (JComponent g : new JComponent[]{configGroup, toolEnabledGroup, sessionGroup, importExportGroup, backupGroup}) {
+            g.setAlignmentX(Component.LEFT_ALIGNMENT);
+            stack.add(g);
+            stack.add(Box.createVerticalStrut(10));
+        }
+        stack.add(Box.createVerticalGlue());
+
+        this.setLayout(new BorderLayout());
+        JScrollPane scroll = new JScrollPane(capWidth(stack),
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        this.add(scroll, BorderLayout.CENTER);
+    }
+
+    /** Keep preferences readable on wide screens: left-align the stack capped at 720px. */
+    private static JComponent capWidth(JComponent inner) {
+        inner.setMaximumSize(new Dimension(720, Integer.MAX_VALUE));
+        inner.setPreferredSize(new Dimension(720, inner.getPreferredSize().height));
+        JPanel holder = new JPanel(new BorderLayout());
+        JPanel west = new JPanel(new BorderLayout());
+        west.add(inner, BorderLayout.NORTH);
+        holder.add(west, BorderLayout.WEST);
+        return holder;
     }
 
     private void addImportExportButtons(ComponentGroup group) {
-        JButton importButton = new JButton("Import...");
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+
+        JButton importButton = sizedButton("Import\u2026", 140);
         JPopupMenu importMenu = new JPopupMenu();
         importMenu.add(new JMenuItem(new AbstractAction("From File") {
             @Override public void actionPerformed(ActionEvent e) {
@@ -188,15 +199,15 @@ public class OptionsPanel extends JPanel {
                 sp.setPreferredSize(new Dimension(500, 600));
                 sp.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
                 if (JOptionPane.showConfirmDialog(OptionsPanel.this, sp,
-                        "Import", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+                        "Import", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
                     importUnified(inputArea.getText());
                 }
             }
         }));
         importButton.addActionListener(e -> importMenu.show(importButton, 0, importButton.getHeight()));
-        group.add(importButton);
+        row.add(importButton);
 
-        JButton exportButton = new JButton("Export...");
+        JButton exportButton = sizedButton("Export\u2026", 140);
         JPopupMenu exportMenu = new JPopupMenu();
         exportMenu.add(new JMenuItem(new AbstractAction("To File") {
             @Override public void actionPerformed(ActionEvent e) {
@@ -229,7 +240,8 @@ public class OptionsPanel extends JPanel {
             }
         }));
         exportButton.addActionListener(e -> exportMenu.show(exportButton, 0, exportButton.getHeight()));
-        group.add(exportButton);
+        row.add(exportButton);
+        group.add(row);
     }
 
     private void addAutoBackupControls(ComponentGroup group) {
@@ -298,8 +310,8 @@ public class OptionsPanel extends JPanel {
         dirRow.add(browseButton);
         group.add(dirRow);
 
-        // Backup Now button
-        JButton backupNowButton = new JButton("Backup Now");
+        JButton backupNowButton = new JButton("Run now");
+        backupNowButton.setToolTipText("Perform a backup immediately");
         backupNowButton.addActionListener(e -> {
             String dir = dirField.getText();
             if (dir == null || dir.isBlank()) {
@@ -323,9 +335,9 @@ public class OptionsPanel extends JPanel {
                 }
             }
         });
-        group.add(backupNowButton);
-
-        Runnable updateEnabled = () -> {
+        JPanel backupRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 2));
+        backupRow.add(backupNowButton);
+        group.add(backupRow);        Runnable updateEnabled = () -> {
             boolean on = enabledCheckbox.isSelected();
             intervalSpinner.setEnabled(on);
             maxSpinner.setEnabled(on);
@@ -337,18 +349,37 @@ public class OptionsPanel extends JPanel {
             restartBackupIfEnabled();
         });
 
-        JTextArea helpText = new JTextArea(
+        group.add(helpLabel(
                 "Periodically saves all sequences and global variables to a JSON file. "
                 + "Acts as a safety net against Burp project file corruption. "
-                + "Backups use the same format as manual Export and can be restored via Import.");
-        helpText.setEditable(false);
-        helpText.setLineWrap(true);
-        helpText.setWrapStyleWord(true);
-        helpText.setOpaque(false);
-        helpText.setFont(helpText.getFont().deriveFont(Font.ITALIC, helpText.getFont().getSize2D() - 1f));
-        helpText.setForeground(UIManager.getColor("Label.disabledForeground"));
-        helpText.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
-        group.add(helpText);
+                + "Backups use the same format as manual Export and can be restored via Import."));
+    }
+
+    private static JButton sizedButton(String label, int minWidth) {
+        JButton b = new JButton(label);
+        Dimension d = b.getPreferredSize();
+        b.setPreferredSize(new Dimension(Math.max(minWidth, d.width), d.height));
+        return b;
+    }
+
+    private JComponent helpLabel(String text) {
+        JTextArea a = new JTextArea(text);
+        a.setEditable(false);
+        a.setLineWrap(true);
+        a.setWrapStyleWord(true);
+        a.setOpaque(false);
+        a.setFocusable(false);
+        a.setFont(a.getFont().deriveFont(Font.ITALIC, a.getFont().getSize2D() - 1f));
+        a.setForeground(Themes.disabledForeground(a));
+        a.setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
+        int width = 680;
+        a.setSize(width, Short.MAX_VALUE);
+        int h = a.getPreferredSize().height;
+        Dimension d = new Dimension(width, h);
+        a.setPreferredSize(d);
+        a.setMaximumSize(d);
+        a.setMinimumSize(new Dimension(120, h));
+        return a;
     }
 
     private void restartBackupIfEnabled() {
@@ -395,7 +426,7 @@ public class OptionsPanel extends JPanel {
 
     private void importUnified(String json) {
         if (json == null || json.isBlank()) {
-            JOptionPane.showMessageDialog(this, "No data to import.", "Import Failed", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(com.xreous.stepperng.Stepper.suiteFrame(), "No data to import.", "Import Failed", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -412,6 +443,7 @@ public class OptionsPanel extends JPanel {
                 ArrayList<StepSequence> sequences = gson.fromJson(json, new TypeToken<ArrayList<StepSequence>>(){}.getType());
                 if (sequences != null) {
                     for (StepSequence seq : sequences) {
+                        SequenceManager.reseedIds(seq);
                         sequenceManager.addStepSequence(seq);
                         seqCount++;
                     }
@@ -419,7 +451,7 @@ public class OptionsPanel extends JPanel {
             } else {
                 JsonObject root = gson.fromJson(json, JsonObject.class);
                 if (root == null) {
-                    JOptionPane.showMessageDialog(this, "Invalid JSON.", "Import Failed", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(com.xreous.stepperng.Stepper.suiteFrame(), "Invalid JSON.", "Import Failed", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
 
@@ -429,6 +461,7 @@ public class OptionsPanel extends JPanel {
                             root.getAsJsonArray("sequences"), new TypeToken<ArrayList<StepSequence>>(){}.getType());
                     if (sequences != null) {
                         for (StepSequence seq : sequences) {
+                            sequenceManager.reseedIds(seq);
                             sequenceManager.addStepSequence(seq);
                             seqCount++;
                         }
@@ -458,13 +491,13 @@ public class OptionsPanel extends JPanel {
             }
         } catch (Exception e) {
             Stepper.montoya.logging().logToError("Stepper-NG: Failed to parse import JSON: " + e.getMessage());
-            JOptionPane.showMessageDialog(this, "Failed to parse JSON: " + e.getMessage(),
+            JOptionPane.showMessageDialog(com.xreous.stepperng.Stepper.suiteFrame(), "Failed to parse JSON: " + e.getMessage(),
                     "Import Failed", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         if (seqCount == 0 && globalCount == 0) {
-            JOptionPane.showMessageDialog(this, "No sequences or global variables found in the data.",
+            JOptionPane.showMessageDialog(com.xreous.stepperng.Stepper.suiteFrame(), "No sequences or global variables found in the data.",
                     "Import Failed", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -472,6 +505,7 @@ public class OptionsPanel extends JPanel {
         StringBuilder msg = new StringBuilder("Imported:");
         if (seqCount > 0) msg.append("\n  ").append(seqCount).append(" sequence(s)");
         if (globalCount > 0) msg.append("\n  ").append(globalCount).append(" global variable(s)");
-        JOptionPane.showMessageDialog(this, msg.toString(), "Import Complete", JOptionPane.INFORMATION_MESSAGE);
+        JOptionPane.showMessageDialog(com.xreous.stepperng.Stepper.suiteFrame(), msg.toString(), "Import Complete", JOptionPane.INFORMATION_MESSAGE);
+        com.xreous.stepperng.util.DuplicateNameWarning.warnImportSummary(com.xreous.stepperng.Stepper.suiteFrame());
     }
 }

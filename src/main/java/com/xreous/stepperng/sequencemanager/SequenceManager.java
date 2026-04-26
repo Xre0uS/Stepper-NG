@@ -2,6 +2,7 @@ package com.xreous.stepperng.sequencemanager;
 
 import com.xreous.stepperng.MessageProcessor;
 import com.xreous.stepperng.Stepper;
+import com.xreous.stepperng.condition.StepCondition;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.sequencemanager.listener.StepSequenceListener;
 import com.xreous.stepperng.step.Step;
@@ -25,7 +26,7 @@ public class SequenceManager {
 
     public SequenceManager(){
         this.sequences = new CopyOnWriteArrayList<>();
-        this.sequenceListeners = new ArrayList<>();
+        this.sequenceListeners = new CopyOnWriteArrayList<>();
     }
 
     /**
@@ -80,6 +81,51 @@ public class SequenceManager {
         }
     }
 
+    /**
+     * Replaces the sequence's UUID and every contained step's UUID with fresh values, remapping
+     * intra-sequence references (validation step ids, condition goto targets) to the new ids.
+     * Required on import / duplicate so cloned sequences don't collide with existing ones in the
+     * CardLayout (cards are keyed by UUID) or the manager's id-based lookups.
+     */
+    public static void reseedIds(StepSequence sequence) {
+        if (sequence == null) return;
+        sequence.setSequenceId(UUID.randomUUID().toString());
+        Map<String, String> idMap = new HashMap<>();
+        for (Step step : sequence.getSteps()) {
+            String fresh = UUID.randomUUID().toString();
+            idMap.put(step.getStepId(), fresh);
+            step.setStepId(fresh);
+        }
+        String v = sequence.getValidationStepId();
+        if (v != null && idMap.containsKey(v)) sequence.setValidationStepId(idMap.get(v));
+        String pv = sequence.getPostValidationStepId();
+        if (pv != null && idMap.containsKey(pv)) sequence.setPostValidationStepId(idMap.get(pv));
+        for (Step step : sequence.getSteps()) {
+            StepCondition c = step.getCondition();
+            if (c == null) continue;
+            String g = c.getGotoTarget();
+            if (g != null && idMap.containsKey(g)) c.setGotoTarget(idMap.get(g));
+            String eg = c.getElseGotoTarget();
+            if (eg != null && idMap.containsKey(eg)) c.setElseGotoTarget(idMap.get(eg));
+        }
+    }
+
+    public StepSequence duplicate(StepSequence original) {
+        try {
+            com.google.gson.Gson gson = Stepper.getGsonProvider().getGson();
+            String json = gson.toJson(original, StepSequence.class);
+            StepSequence copy = gson.fromJson(json, StepSequence.class);
+            reseedIds(copy);
+            copy.setTitle(original.getTitle() + " (Copy)");
+            addStepSequence(copy);
+            return copy;
+        } catch (Exception e) {
+            Stepper.montoya.logging().logToError("Stepper-NG: Failed to duplicate sequence '"
+                    + original.getTitle() + "': " + e.getMessage());
+            return null;
+        }
+    }
+
     public void sequenceModified(StepSequence sequence) {
         for (StepSequenceListener listener : this.sequenceListeners) {
             try {
@@ -104,23 +150,32 @@ public class SequenceManager {
 
     /**
      * Finds a non-disabled sequence by its sequenceId first, then falls back to
-     * case-insensitive title match. Returns empty if not found.
+     * case-insensitive title match. Logs a warning when more than one sequence
+     * shares the same title so the ambiguity is at least visible.
      */
     public Optional<StepSequence> findSequence(String idOrName) {
         if (idOrName == null || idOrName.isEmpty()) return Optional.empty();
-        // Try by ID first
         for (StepSequence seq : this.sequences) {
             if (!seq.isDisabled() && idOrName.equals(seq.getSequenceId())) {
                 return Optional.of(seq);
             }
         }
-        // Fall back to title match
+        StepSequence first = null;
+        int matches = 0;
         for (StepSequence seq : this.sequences) {
             if (!seq.isDisabled() && seq.getTitle().equalsIgnoreCase(idOrName)) {
-                return Optional.of(seq);
+                if (first == null) first = seq;
+                matches++;
             }
         }
-        return Optional.empty();
+        if (matches > 1) {
+            try {
+                Stepper.montoya.logging().logToError("Stepper-NG: " + matches
+                        + " sequences share the title '" + idOrName + "'; using the first one. "
+                        + "Rename sequences or reference by id for deterministic behaviour.");
+            } catch (Exception ignored) {}
+        }
+        return Optional.ofNullable(first);
     }
 
     public HashMap<StepSequence, List<StepVariable>> getRollingVariablesFromAllSequences(){

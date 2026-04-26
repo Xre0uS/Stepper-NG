@@ -2,13 +2,11 @@ package com.xreous.stepperng.sequence.serializer;
 
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.step.Step;
-import com.xreous.stepperng.variable.StepVariable;
 import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.List;
 
 public class StepSequenceSerializer implements JsonSerializer<StepSequence>, JsonDeserializer<StepSequence> {
 
@@ -27,14 +25,8 @@ public class StepSequenceSerializer implements JsonSerializer<StepSequence>, Jso
             if (obj.has("maxConsecutiveFailures")) {
                 stepSequence.setMaxConsecutiveFailures(obj.get("maxConsecutiveFailures").getAsInt());
             }
-            if (obj.has("globals") && obj.getAsJsonObject("globals") != null) {
-                List<StepVariable> globalVars = context.deserialize(obj.getAsJsonObject("globals").getAsJsonArray("variables"), new TypeToken<List<StepVariable>>() {}.getType());
-                if (globalVars != null) {
-                    for (StepVariable variable : globalVars) {
-                        stepSequence.getGlobalVariableManager().addVariable(variable);
-                    }
-                }
-            }
+            // Legacy field "globals" (per-sequence global variables) intentionally ignored —
+            // superseded by cross-sequence $GVAR/$DVAR and by step-level variables.
             if (obj.has("steps") && obj.getAsJsonArray("steps") != null) {
                 ArrayList<Step> steps = context.deserialize(obj.getAsJsonArray("steps"), new TypeToken<ArrayList<Step>>() {}.getType());
                 if (steps != null) {

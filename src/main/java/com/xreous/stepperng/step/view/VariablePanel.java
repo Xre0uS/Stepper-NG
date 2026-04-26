@@ -26,16 +26,13 @@ public abstract class VariablePanel extends JPanel {
 
         this.add(new JScrollPane(this.variableTable), BorderLayout.CENTER);
         this.add(controlPanel, BorderLayout.SOUTH);
-
-        this.setPreferredSize(new Dimension(300,170));
-        this.setMinimumSize(new Dimension(200, 100));
     }
 
     JPanel createControlPanel() {
         JPanel controlPanel = new JPanel(new GridLayout(1, 0));
         JButton addVariableButton = new JButton("Add Variable");
         addVariableButton.addActionListener(actionEvent -> handleAddVariableEvent());
-        JButton deleteSelectedVariableButton = new JButton("Delete Selected Variable");
+        JButton deleteSelectedVariableButton = new JButton("Delete Selected");
         deleteSelectedVariableButton.addActionListener(actionEvent -> handleDeleteVariableEvent());
         controlPanel.add(addVariableButton);
         controlPanel.add(deleteSelectedVariableButton);

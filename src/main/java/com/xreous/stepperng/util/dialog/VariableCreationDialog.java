@@ -19,8 +19,12 @@ public class VariableCreationDialog extends JDialog {
         super(owner, title, true);
         buildDialog(type);
         pack();
-        setMinimumSize(new Dimension(350, getHeight()));
-        setSize(new Dimension(400, getHeight()));
+        Dimension pref = getPreferredSize();
+        FontMetrics fm = getFontMetrics(getFont());
+        // Ensure the input field gets a usable typing width even with short default button text.
+        int minW = Math.max(pref.width, fm.charWidth('M') * 42);
+        setMinimumSize(new Dimension(minW, pref.height));
+        setSize(getMinimumSize());
         setLocationRelativeTo(owner);
     }
 
@@ -62,10 +66,7 @@ public class VariableCreationDialog extends JDialog {
             this.setVisible(false);
         });
 
-        okButton.setMinimumSize(new Dimension(100,35));
-        okButton.setPreferredSize(new Dimension(100,35));
-        cancelButton.setMinimumSize(new Dimension(100,35));
-        cancelButton.setPreferredSize(new Dimension(100,35));
+        // Buttons size themselves from their text + LAF insets — no magic dimensions.
 
         JPanel controlPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();

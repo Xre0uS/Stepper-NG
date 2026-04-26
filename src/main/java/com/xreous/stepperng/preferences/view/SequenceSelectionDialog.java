@@ -26,8 +26,13 @@ public class SequenceSelectionDialog extends JDialog {
 
         buildDialog();
         pack();
-        setMinimumSize(new Dimension(400, 250));
-        setSize(new Dimension(550, 350));
+        Dimension pref = getPreferredSize();
+        FontMetrics fm = getFontMetrics(getFont());
+        int em = fm.charWidth('M');
+        int minW = Math.max(pref.width, em * 50);
+        int minH = Math.max(pref.height, fm.getHeight() * 14);
+        setMinimumSize(new Dimension(minW, minH));
+        setSize(new Dimension(Math.max(em * 70, minW), Math.max(fm.getHeight() * 20, minH)));
         setLocationRelativeTo(owner);
     }
 
@@ -64,10 +69,7 @@ public class SequenceSelectionDialog extends JDialog {
             this.setVisible(false);
         });
 
-        okButton.setMinimumSize(new Dimension(100,35));
-        okButton.setPreferredSize(new Dimension(100,35));
-        cancelButton.setMinimumSize(new Dimension(100,35));
-        cancelButton.setPreferredSize(new Dimension(100,35));
+        // Buttons size themselves from their text + LAF insets — no magic dimensions.
 
         JPanel controlPanel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();

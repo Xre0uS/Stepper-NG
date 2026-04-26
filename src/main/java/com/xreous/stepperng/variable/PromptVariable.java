@@ -34,12 +34,12 @@ public class PromptVariable extends PreExecutionStepVariable {
     public void updateVariableBeforeExecution() {
         final String[] result = {null};
         if (javax.swing.SwingUtilities.isEventDispatchThread()) {
-            result[0] = JOptionPane.showInputDialog(Stepper.getUI().getUiComponent(), "Enter value for variable \"" + this.identifier + "\": ",
+            result[0] = JOptionPane.showInputDialog(Stepper.suiteFrame(), "Enter value for variable \"" + this.identifier + "\": ",
                     "Variable Value", JOptionPane.INFORMATION_MESSAGE);
         } else {
             try {
                 javax.swing.SwingUtilities.invokeAndWait(() ->
-                    result[0] = JOptionPane.showInputDialog(Stepper.getUI().getUiComponent(), "Enter value for variable \"" + this.identifier + "\": ",
+                    result[0] = JOptionPane.showInputDialog(Stepper.suiteFrame(), "Enter value for variable \"" + this.identifier + "\": ",
                             "Variable Value", JOptionPane.INFORMATION_MESSAGE)
                 );
             } catch (Exception e) {

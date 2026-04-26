@@ -6,8 +6,6 @@ import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
 import com.xreous.stepperng.sequence.StepSequence;
 import com.xreous.stepperng.sequencemanager.SequenceManager;
-import com.xreous.stepperng.step.view.StepPanel;
-import com.xreous.stepperng.sequence.view.StepSequenceTab;
 import com.xreous.stepperng.util.AutoRegexDialog;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.DynamicGlobalVariable;
@@ -60,7 +58,7 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
 
             JMenuItem newSequence = new JMenuItem("New Sequence");
             newSequence.addActionListener(actionEvent -> {
-                String name = JOptionPane.showInputDialog(Stepper.getUI() != null ? Stepper.getUI().getUiComponent() : null,
+                String name = JOptionPane.showInputDialog(Stepper.suiteFrame(),
                         "Enter a name to identify the sequence: ", "", JOptionPane.PLAIN_MESSAGE);
                 if (name != null) {
                     StepSequence stepSequence = new StepSequence(name);
@@ -68,6 +66,7 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
                         stepSequence.addStep(message);
                     }
                     this.sequenceManager.addStepSequence(stepSequence);
+                    com.xreous.stepperng.util.DuplicateNameWarning.checkSequenceTitle(Stepper.suiteFrame(), stepSequence);
                 }
             });
 
@@ -128,15 +127,12 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
 
         boolean isViewingSequenceStep = false;
         if (Stepper.getUI() != null) {
-            StepSequenceTab selectedStepSet = Stepper.getUI().getSelectedStepSet();
-            if(selectedStepSet != null){
-                StepPanel selectedStepPanel = selectedStepSet.getSelectedStepPanel();
-                if(selectedStepPanel != null){
-                    isViewingSequenceStep = true;
-                    StepSequence seq = selectedStepSet.getStepSequence();
-                    List<StepVariable> allSeqVariables = seq.getRollingVariablesForWholeSequence();
-                    sequenceVariableMap.put(seq, allSeqVariables);
-                }
+            // Context menu invoked while a specific step is selected in the tree → offer that
+            // sequence's rolling variables only. Otherwise offer all sequences grouped.
+            StepSequence selectedSeq = Stepper.getUI().getSelectedSequence();
+            if (selectedSeq != null && Stepper.getUI().getSelectedStep() != null) {
+                isViewingSequenceStep = true;
+                sequenceVariableMap.put(selectedSeq, selectedSeq.getRollingVariablesForWholeSequence());
             }
         }
         if (!isViewingSequenceStep) {
@@ -273,7 +269,7 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
 
         if (messageBytes.length == 0) return menuItems;
 
-        String messageText = new String(messageBytes);
+        String messageText = new String(messageBytes, java.nio.charset.StandardCharsets.UTF_8);
 
         String preSelection = null;
         int preSelOffset = -1;
@@ -282,7 +278,7 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
             int start = range.startIndexInclusive();
             int end = range.endIndexExclusive();
             if (start >= 0 && end > start && end <= messageBytes.length) {
-                preSelection = new String(messageBytes, start, end - start);
+                preSelection = new String(messageBytes, start, end - start, java.nio.charset.StandardCharsets.UTF_8);
                 preSelOffset = start;
             }
         }
@@ -293,7 +289,7 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
 
         JMenuItem autoRegexItem = new JMenuItem("Stepper-NG: Auto-Regex (" + label + ")");
         autoRegexItem.addActionListener(actionEvent -> {
-            Component parent = Stepper.getUI() != null ? Stepper.getUI().getUiComponent() : null;
+            Component parent = Stepper.suiteFrame();
             AutoRegexDialog.Result result = AutoRegexDialog.show(
                     parent, messageText,
                     "Auto-Generate Regex - " + fLabel,
@@ -305,7 +301,9 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
                     String varName = result.variableName.isEmpty()
                             ? "auto_" + System.currentTimeMillis()
                             : result.variableName;
-                    manager.addVariable(new DynamicGlobalVariable(varName, result.regex, null));
+                    DynamicGlobalVariable created = new DynamicGlobalVariable(varName, result.regex, null);
+                    manager.addVariable(created);
+                    com.xreous.stepperng.util.DuplicateNameWarning.checkDynamicGlobalName(Stepper.suiteFrame(), created);
                 }
             }
         });

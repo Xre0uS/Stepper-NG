@@ -19,10 +19,10 @@ public class PostExecutionStepVariableRenderer extends DefaultTableCellRenderer 
             Component c = super.getTableCellRendererComponent(table, ((PostExecutionStepVariable) value).getConditionText(), isSelected, hasFocus, row, column);
             if (value instanceof RegexVariable) {
                 if(((RegexVariable) value).getPattern() != null){ //Pattern was valid
-                    c.setBackground(new Color(76,255, 155));
+                    c.setBackground(Themes.okBackground(table));
                     c.setForeground(Color.BLACK);
                 }else if(((RegexVariable) value).getConditionText() != null){ //Pattern was not null and invalid
-                    c.setBackground(new Color(221, 70, 57));
+                    c.setBackground(Themes.badBackground(table));
                     c.setForeground(Color.WHITE);
                 }
             }

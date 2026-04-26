@@ -1,6 +1,7 @@
 package com.xreous.stepperng.step.view;
 
 import com.xreous.stepperng.step.Step;
+import com.xreous.stepperng.util.view.TableColumnSizer;
 import com.xreous.stepperng.variable.PreExecutionStepVariable;
 import com.xreous.stepperng.variable.StepVariable;
 import com.xreous.stepperng.variable.VariableManager;
@@ -30,8 +31,8 @@ public class PreExecutionVariableTable extends JTable {
 
         this.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
 
-        this.getColumnModel().getColumn(0).setPreferredWidth(200);
-        this.getColumnModel().getColumn(1).setPreferredWidth(300);
+        // Columns: Identifier, Last Value
+        TableColumnSizer.pack(this, new int[]{20, 40});
 
         addMouseListener(new MouseAdapter() {
             @Override

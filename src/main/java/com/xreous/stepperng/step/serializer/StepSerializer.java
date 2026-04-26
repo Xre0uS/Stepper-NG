@@ -32,22 +32,13 @@ public class StepSerializer implements JsonSerializer<Step>, JsonDeserializer<St
                 if (condObj.has("type")) cond.setType(StepCondition.ConditionType.valueOf(condObj.get("type").getAsString()));
                 if (condObj.has("pattern")) cond.setPattern(condObj.get("pattern").getAsString());
                 if (condObj.has("matchMode")) {
-                    String modeStr = condObj.get("matchMode").getAsString();
-                    // backward compat: IF_MATCH → MATCHES, IF_NOT_MATCH → DOES_NOT_MATCH
-                    if ("IF_MATCH".equals(modeStr)) modeStr = "MATCHES";
-                    else if ("IF_NOT_MATCH".equals(modeStr)) modeStr = "DOES_NOT_MATCH";
-                    cond.setMatchMode(StepCondition.MatchMode.valueOf(modeStr));
-                } else if (condObj.has("negate")) {
-                    cond.setMatchMode(condObj.get("negate").getAsBoolean()
-                            ? StepCondition.MatchMode.DOES_NOT_MATCH : StepCondition.MatchMode.MATCHES);
+                    cond.setMatchMode(StepCondition.MatchMode.valueOf(condObj.get("matchMode").getAsString()));
                 }
-                if (condObj.has("failAction")) cond.setAction(parseAction(condObj.get("failAction").getAsString()));
-                if (condObj.has("action")) cond.setAction(parseAction(condObj.get("action").getAsString()));
-                if (condObj.has("failGotoTarget")) cond.setGotoTarget(condObj.get("failGotoTarget").getAsString());
+                if (condObj.has("action")) cond.setAction(ConditionFailAction.valueOf(condObj.get("action").getAsString()));
                 if (condObj.has("gotoTarget")) cond.setGotoTarget(condObj.get("gotoTarget").getAsString());
                 if (condObj.has("retryCount")) cond.setRetryCount(condObj.get("retryCount").getAsInt());
                 if (condObj.has("retryDelayMs")) cond.setRetryDelayMs(condObj.get("retryDelayMs").getAsLong());
-                if (condObj.has("elseAction")) cond.setElseAction(parseAction(condObj.get("elseAction").getAsString()));
+                if (condObj.has("elseAction")) cond.setElseAction(ConditionFailAction.valueOf(condObj.get("elseAction").getAsString()));
                 if (condObj.has("elseGotoTarget")) cond.setElseGotoTarget(condObj.get("elseGotoTarget").getAsString());
                 step.setCondition(cond);
             }
@@ -91,12 +82,5 @@ public class StepSerializer implements JsonSerializer<Step>, JsonDeserializer<St
         json.addProperty("request", new String(src.getRequest()));
         json.add("variables", context.serialize(src.getVariableManager().getVariables(), new TypeToken<List<StepVariable>>(){}.getType()));
         return json;
-    }
-
-    private static ConditionFailAction parseAction(String value) {
-        return switch (value) {
-            case "SKIP", "STOP" -> ConditionFailAction.SKIP_REMAINING;
-            default -> ConditionFailAction.valueOf(value);
-        };
     }
 }

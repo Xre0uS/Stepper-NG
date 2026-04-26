@@ -68,11 +68,12 @@ public class PostExecVariablePanel extends VariablePanel {
     private void handleAutoRegexEvent() {
         byte[] responseBytes = step.getResponse();
         if (responseBytes == null || responseBytes.length == 0) {
-            JOptionPane.showMessageDialog(this, "No response data yet. Execute the step first.",
+            JOptionPane.showMessageDialog(com.xreous.stepperng.Stepper.suiteFrame(),
+                    "No response data yet. Execute the step first.",
                     "No Response", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String responseText = new String(responseBytes);
+        String responseText = new String(responseBytes, java.nio.charset.StandardCharsets.UTF_8);
 
         String preSelection = null;
         int preSelOffset = -1;
