@@ -94,6 +94,9 @@ public class StepperUI {
                 clearHighlight();
             }
         });
+        if (this.sequenceManager.getSequences().isEmpty()) {
+            SwingUtilities.invokeLater(() -> treePanel.selectBuiltIn(SequenceTreePanel.BUILTIN_ABOUT));
+        }
     }
     private void primeDividerFromContent() {
         // Wait for the first real layout pass: HierarchyEvent SHOWING_CHANGED can fire before the
@@ -120,8 +123,8 @@ public class StepperUI {
         if (contentW <= 0) return;
         int scrollbar = Math.max(12, UIManager.getInt("ScrollBar.width"));
         int desired = contentW + scrollbar + 16;
-        int max = Math.max(120, splitPane.getWidth() - 200);
-        splitPane.setDividerLocation(Math.max(120, Math.min(desired, max)));
+        int max = Math.max(240, splitPane.getWidth() - 200);
+        splitPane.setDividerLocation(Math.max(240, Math.min(desired, max)));
     }
     private static JComponent wrap(JComponent c) {
         JPanel p = new JPanel(new BorderLayout());

@@ -163,6 +163,15 @@ public final class SequenceTreePanel extends JPanel {
         if (n != null) selectNode(n);
     }
 
+    public void selectBuiltIn(String key) {
+        for (int i = 0; i < navList.getModel().getSize(); i++) {
+            if (key.equals(navList.getModel().getElementAt(i).key)) {
+                navList.setSelectedIndex(i);
+                return;
+            }
+        }
+    }
+
     public void selectStep(StepSequence sequence, Step step) {
         DefaultMutableTreeNode seqNode = findSequenceNode(sequence);
         if (seqNode == null) return;

@@ -429,7 +429,7 @@ public class SequenceOverviewPanel extends JPanel {
             return switch (col) {
                 case 0 -> r.variable.isPublished();
                 case 1 -> r.variable.getIdentifier();
-                case 2 -> "Step " + (r.stepIndex + 1) + ": " + r.step.getTitle();
+                case 2 -> r.step.getTitle();
                 case 3 -> r.regex;
                 case 4 -> {
                     String v = r.variable.getValue();
