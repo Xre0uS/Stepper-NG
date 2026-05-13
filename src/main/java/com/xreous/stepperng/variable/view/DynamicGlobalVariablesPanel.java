@@ -124,7 +124,7 @@ public class DynamicGlobalVariablesPanel extends JPanel {
         manager.addVariableListener(new StepVariableListener() {
             @Override public void onVariableAdded(StepVariable variable) { refreshTables(); }
             @Override public void onVariableRemoved(StepVariable variable) { refreshTables(); }
-            @Override public void onVariableChange(StepVariable variable) { refreshTables(); }
+            @Override public void onVariableChange(StepVariable variable) { refreshTablesInPlace(); }
         });
     }
     private void handleStaticPopup(MouseEvent e) {
@@ -186,6 +186,15 @@ public class DynamicGlobalVariablesPanel extends JPanel {
             dynamicTableModel.fireTableDataChanged();
             if (sRow >= 0 && sRow < staticTable.getRowCount()) staticTable.setRowSelectionInterval(sRow, sRow);
             if (dRow >= 0 && dRow < dynamicTable.getRowCount()) dynamicTable.setRowSelectionInterval(dRow, dRow);
+        });
+    }
+    // Row-scoped update: repaints existing rows without clearing selection.
+    private void refreshTablesInPlace() {
+        SwingUtilities.invokeLater(() -> {
+            int sc = staticTableModel.getRowCount();
+            int dc = dynamicTableModel.getRowCount();
+            if (sc > 0) staticTableModel.fireTableRowsUpdated(0, sc - 1);
+            if (dc > 0) dynamicTableModel.fireTableRowsUpdated(0, dc - 1);
         });
     }
     private void removeSelectedStatic() {
