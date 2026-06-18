@@ -3,11 +3,11 @@ ExtensionType: 1
 Name: Stepper
 RepoName: stepper
 ScreenVersion: 2.3.3
-SerialVersion: 6
-MinPlatformVersion: 0
+SerialVersion: 7
+MinPlatformVersion: 29
 ProOnly: False
 Author: Xre0uS, CoreyD97
 ShortDescription: A multi-stage Repeater replacement
-EntryPoint: releases/Stepper.jar
+EntryPoint: BurpMontoyaUtilities-unspecified.jar
 BuildCommand: ./gradlew build
 SupportedProducts: Pro, Community
