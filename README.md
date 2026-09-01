@@ -2,6 +2,8 @@
 
 A Burp Suite extension for chaining multi-step HTTP request sequences with automatic variable extraction, session management, and conditional logic. Define a login flow once, extract tokens with regex, and let Stepper-NG replay it transparently whenever Scanner, Intruder, or Repeater needs a fresh session.
 
+Download from the [BApp store](https://portswigger.net/bappstore/065d156ecefd480fa3efa36e05d55f77)!
+
 Examples & writeup: https://xreous.io/posts/stepper-ng/
 
 Also check out this great video tutorial by [ryarmst](https://github.com/ryarmst): https://www.youtube.com/playlist?list=PLwdBLHqdMyeFp2jdshGSOYEYXqPQrEzIK
